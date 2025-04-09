@@ -1,0 +1,42 @@
+# Experiment Configuration
+
+run_name: "baseline_experiment"
+
+environment:
+  # device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  device: "auto"
+
+data:
+  base_path: "/Volumes/HDD/MTMMC/train/train/"
+
+  campus:
+    scene_id: "s47"
+    camera_ids: [ "c01", "c02", "c03", "c05" ]
+
+  factory:
+    scene_id: "s10"
+    camera_ids: [ "c09", "c12", "c13", "c16" ]
+
+model:
+  # Options: "yolo", "rtdetr", "fasterrcnn", "rfdetr"
+  type: "fasterrcnn"
+  # Options: "fasterrcnn_resnet50_fpn", "rtdetr-x.pt", "rfdetr_l", "yolov11x.pt", "yolov11l.pt", "yolov9e.pt"
+  weights_path: "models/fasterrcnn_resnet50_fpn"
+  # Detection confidence threshold
+  confidence_threshold: 0.5
+  # Class ID for person (COCO default is 0) but torchvision models use 1 for person
+  person_class_id: 1
+
+# Tracker specific configuration
+tracker:
+  # Maximum length of trajectory history to keep per track ID
+  history_length: 200
+
+# MLflow Configuration (will be used later)
+mlflow:
+  experiment_name: "Person Detection Tracking"
+  # tracking_uri: set via environment variable MLFLOW_TRACKING_URI or dagshub login
+
+# Evaluation Configuration (will be used by evaluate.py later)
+evaluation:
+  iou_threshold: 0.5
