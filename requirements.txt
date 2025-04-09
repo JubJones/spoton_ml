@@ -1,0 +1,18 @@
+# MLOps & Core
+mlflow
+dagshub
+pyyaml
+opencv-python
+
+# ML Frameworks & Models
+torch
+torchvision
+torchaudio
+ultralytics
+rfdetr
+boxmot
+
+# Utilities
+numpy
+pillow
+scipy

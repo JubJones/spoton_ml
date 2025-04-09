@@ -57,7 +57,6 @@ cover/
 *.pot
 
 # Django stuff:
-*.log
 local_settings.py
 db.sqlite3
 db.sqlite3-journal
@@ -75,13 +74,6 @@ docs/_build/
 # PyBuilder
 .pybuilder/
 target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
 
 # pyenv
 #   For a library or package, you might want to ignore these files since the code is
@@ -173,3 +165,38 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# Jupyter Notebook
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+
+# VS Code settings
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# MLflow
+mlruns/
+# Optional: If you store artifacts or models locally before logging
+# local_artifacts/
+
+# DVC
+.dvc/cache
+/data/ # If data is large and tracked by DVC, ignore the directory itself in git
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Temporary files
+*.log
+*.tmp
+*.swp
