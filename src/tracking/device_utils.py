@@ -1,7 +1,9 @@
-import torch
 import logging
 
+import torch
+
 logger = logging.getLogger(__name__)
+
 
 def get_selected_device(requested_device: str = "auto") -> torch.device:
     """
@@ -33,15 +35,15 @@ def get_selected_device(requested_device: str = "auto") -> torch.device:
 
     elif req_device_lower == "mps":
         if torch.backends.mps.is_available() and torch.backends.mps.is_built():
-             try:
-                 device = torch.device("mps")
-                 # Test tensor creation on MPS
-                 _ = torch.tensor([1.0], device=device) + torch.tensor([1.0], device=device)
-                 logger.info(f"Selected device: {device}")
-                 return device
-             except Exception as e:
-                 logger.warning(f"MPS available but test failed ({e}). Falling back to CPU.")
-                 return torch.device("cpu")
+            try:
+                device = torch.device("mps")
+                # Test tensor creation on MPS
+                _ = torch.tensor([1.0], device=device) + torch.tensor([1.0], device=device)
+                logger.info(f"Selected device: {device}")
+                return device
+            except Exception as e:
+                logger.warning(f"MPS available but test failed ({e}). Falling back to CPU.")
+                return torch.device("cpu")
         else:
             logger.warning("MPS requested but not available. Falling back to CPU.")
             return torch.device("cpu")
@@ -55,9 +57,9 @@ def get_selected_device(requested_device: str = "auto") -> torch.device:
         # 1. Try CUDA
         if torch.cuda.is_available():
             try:
-                device = torch.device("cuda") # Default CUDA device
+                device = torch.device("cuda")  # Default CUDA device
                 device_name = torch.cuda.get_device_name(device)
-                 # Test tensor creation
+                # Test tensor creation
                 _ = torch.tensor([1.0], device=device) + torch.tensor([1.0], device=device)
                 logger.info(f"Auto-selected device: {device} ({device_name})")
                 return device
@@ -75,7 +77,7 @@ def get_selected_device(requested_device: str = "auto") -> torch.device:
                 logger.info(f"Auto-selected device: {device}")
                 return device
             except Exception as e:
-                 logger.warning(f"MPS available but test failed ({e}). Falling back to CPU.")
+                logger.warning(f"MPS available but test failed ({e}). Falling back to CPU.")
         else:
             logger.info("MPS not available.")
 
