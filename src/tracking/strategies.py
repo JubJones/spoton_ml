@@ -2,11 +2,11 @@ import abc
 import logging
 from typing import List, Tuple, Dict, Any
 
+import cv2
 import numpy as np
 import torch
 import torchvision
 from PIL import Image
-import cv2
 
 # Conditional imports for models - improves portability if some aren't installed
 try:
@@ -27,11 +27,10 @@ except ImportError:
     FasterRCNN_ResNet50_FPN_Weights = None
     logging.warning("torchvision FasterRCNN weights not found.")
 
-
 logger = logging.getLogger(__name__)
 
-# Define type alias for detection results
-DetectionResult = Tuple[List[List[float]], List[int], List[float]] # boxes_xywh, track_ids, confidences
+DetectionResult = Tuple[List[List[float]], List[int], List[float]]  # boxes_xywh, track_ids, confidences
+
 
 class DetectionTrackingStrategy(abc.ABC):
     """Abstract base class for object detection and tracking strategies."""
@@ -40,36 +39,21 @@ class DetectionTrackingStrategy(abc.ABC):
     def __init__(self, model_path: str, device: torch.device, config: Dict[str, Any]):
         """
         Load the specific detection/tracking model.
-
-        Args:
-            model_path: Path to the model weights file.
-            device: The torch.device to run inference on.
-            config: Dictionary containing model-specific configurations
-                    (e.g., confidence_threshold, person_class_id).
         """
         self.model_path = model_path
         self.device = device
         self.config = config
-        self.model = None # To be initialized by subclasses
-        self.person_class_id = config.get('person_class_id', 0) # Default to 0 (COCO person)
-        self.confidence_threshold = config.get('confidence_threshold', 0.5) # Default threshold
-        self.placeholder_track_id = -1 # Used when tracking is not available/enabled
+        self.model = None
+        self.person_class_id = config.get('person_class_id', 0)  # Default COCO index for person
+        self.confidence_threshold = config.get('confidence_threshold', 0.5)
+        self.placeholder_track_id = -1
 
     @abc.abstractmethod
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
         """
-        Process a single frame to detect objects (specifically persons).
-        Tracking logic (assigning consistent IDs) is handled by the main Tracker class,
-        although some strategies might return preliminary track IDs.
+        Process a single frame to detect person.
 
-        Args:
-            frame: The input frame in BGR format (from OpenCV).
-
-        Returns:
-            A tuple containing:
-            - List of bounding boxes ([center_x, center_y, width, height]).
-            - List of track IDs (integer for tracked objects, -1 for detections without ID).
-            - List of confidence scores for each detection/track.
+        Tracking logic (assigning consistent IDs) is handled by the main Tracker class.
         """
         pass
 
@@ -78,7 +62,6 @@ class DetectionTrackingStrategy(abc.ABC):
         if self.model:
             try:
                 logger.info(f"Warming up {self.__class__.__name__} model...")
-                # Use a small dummy frame
                 dummy_frame = np.zeros((64, 64, 3), dtype=np.uint8)
                 _ = self.process_frame(dummy_frame)
                 logger.info(f"{self.__class__.__name__} warmup complete.")
@@ -87,7 +70,7 @@ class DetectionTrackingStrategy(abc.ABC):
 
 
 class YoloStrategy(DetectionTrackingStrategy):
-    """Detection and tracking using YOLO models (v8, v9, etc.) via Ultralytics."""
+    """Detection and tracking using YOLO models via Ultralytics."""
 
     def __init__(self, model_path: str, device: torch.device, config: Dict[str, Any]):
         super().__init__(model_path, device, config)
@@ -106,10 +89,6 @@ class YoloStrategy(DetectionTrackingStrategy):
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
         boxes_xywh, track_ids, confidences = [], [], []
         try:
-            # Note: Ultralytics tracker needs state between frames.
-            # If used for pure detection per frame, use model.predict()
-            # If used for tracking, ensure persist=True is managed externally by tracker if needed.
-            # For now, assume predict for simplicity in this refactor.
             results = self.model.predict(
                 frame,
                 classes=[self.person_class_id],
@@ -136,7 +115,7 @@ class YoloStrategy(DetectionTrackingStrategy):
 
         except Exception as e:
             logger.error(f"Error during YOLO processing: {e}", exc_info=True)
-            return [], [], [] # Return empty lists on error
+            return [], [], []  # Return empty lists on error
 
         return boxes_xywh, track_ids, confidences
 
@@ -161,7 +140,6 @@ class RTDetrStrategy(DetectionTrackingStrategy):
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
         boxes_xywh, track_ids, confidences = [], [], []
         try:
-            # RTDETR predict only gives detections
             results = self.model.predict(
                 frame,
                 classes=[self.person_class_id],
@@ -196,17 +174,16 @@ class FasterRCNNStrategy(DetectionTrackingStrategy):
     """Detection using Faster R-CNN (ResNet50 FPN) from TorchVision."""
 
     def __init__(self, model_path: str, device: torch.device, config: Dict[str, Any]):
-        # model_path is ignored for default torchvision weights, but kept for consistency
         super().__init__(model_path, device, config)
         if FasterRCNN_ResNet50_FPN_Weights is None:
-             raise ImportError("torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights not found.")
+            raise ImportError("torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights not found.")
 
         logger.info(f"Initializing Faster R-CNN strategy (TorchVision default weights) on device: {device}")
         try:
             weights = FasterRCNN_ResNet50_FPN_Weights.DEFAULT
             self.model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=weights)
             self.model.to(self.device)
-            self.model.eval() # Set to evaluation mode
+            self.model.eval()  # Set to evaluation mode
             self.transforms = weights.transforms()
             logger.info("Faster R-CNN model loaded successfully.")
             self._warmup()
@@ -214,7 +191,7 @@ class FasterRCNNStrategy(DetectionTrackingStrategy):
             logger.error(f"Failed to load Faster R-CNN model: {e}")
             raise
 
-    @torch.no_grad() # Disable gradient calculations for inference
+    @torch.no_grad()  # Disable gradient calculations for inference
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
         boxes_xywh, track_ids, confidences = [], [], []
         try:
@@ -231,8 +208,7 @@ class FasterRCNNStrategy(DetectionTrackingStrategy):
             pred_scores = predictions[0]["scores"].cpu().numpy()
 
             for box_xyxy, label, score in zip(pred_boxes_xyxy, pred_labels, pred_scores):
-                # COCO label for person is 1 in torchvision models
-                is_person = (label == 1) # FasterRCNN uses COCO label 1 for person
+                is_person = (label == 1)  # FasterRCNN uses COCO label 1 for person
                 if is_person and score >= self.confidence_threshold:
                     x1, y1, x2, y2 = box_xyxy
                     width = x2 - x1
@@ -241,7 +217,7 @@ class FasterRCNNStrategy(DetectionTrackingStrategy):
                         center_x = x1 + width / 2
                         center_y = y1 + height / 2
                         boxes_xywh.append([center_x, center_y, width, height])
-                        track_ids.append(self.placeholder_track_id) # FasterRCNN provides no tracking
+                        track_ids.append(self.placeholder_track_id)  # FasterRCNN provides no tracking
                         confidences.append(float(score))
 
         except Exception as e:
@@ -252,10 +228,10 @@ class FasterRCNNStrategy(DetectionTrackingStrategy):
 
 
 class RfDetrStrategy(DetectionTrackingStrategy):
-    """Detection using RF-DETR model from the rfdetr library."""
+    """Detection using RF-DETR model from the rfdetr library (Incomplete)."""
 
     def __init__(self, model_path: str, device: torch.device, config: Dict[str, Any]):
-         # model_path is ignored for RFDETRLarge, but kept for consistency
+        # model_path is ignored for RFDETRLarge, but kept for consistency
         super().__init__(model_path, device, config)
         if RFDETRLarge is None:
             raise ImportError("RFDETRLarge is required for RfDetrStrategy but not found.")
@@ -265,20 +241,8 @@ class RfDetrStrategy(DetectionTrackingStrategy):
         logger.info(f"Initializing RF-DETR strategy (RFDETRLarge) targeting device string: '{device_str}'")
 
         try:
-            # Assuming RFDETRLarge determines device internally or via its own mechanisms
-            # Pass device string if constructor accepts it, otherwise it might use global settings
-            # Check RFDETR documentation for precise device handling
-            self.model = RFDETRLarge() # device=device_str - Adjust if constructor API changes
-
-            # Check if model ended up on the correct device (might need adjustment based on rfdetr lib)
-            # Example check (may need refinement):
-            # model_device = next(self.model.parameters()).device
-            # if model_device.type != device.type:
-            #    logger.warning(f"RFDETRLarge model initialized on {model_device}, expected {device}. Check library behavior.")
-            #    # Attempt to move if possible/necessary
-            #    # self.model.to(device) # Might not work depending on library design
-
-            self.person_label_index = 1 # Assuming COCO index 1 for person
+            self.model = RFDETRLarge()
+            self.person_label_index = 1
             logger.info(f"RF-DETR strategy initialized.")
             self._warmup()
 
@@ -299,7 +263,8 @@ class RfDetrStrategy(DetectionTrackingStrategy):
             # RFDETR predict returns a Detections object (check library for exact structure)
             detections = self.model.predict(img_rgb_pil, threshold=self.confidence_threshold)
 
-            if detections and hasattr(detections, 'xyxy') and hasattr(detections, 'class_id') and hasattr(detections, 'confidence'):
+            if detections and hasattr(detections, 'xyxy') and hasattr(detections, 'class_id') and hasattr(detections,
+                                                                                                          'confidence'):
                 # Adapt based on the actual attributes of the 'detections' object returned by rfdetr
                 pred_boxes_xyxy = detections.xyxy
                 pred_labels = detections.class_id
@@ -308,7 +273,7 @@ class RfDetrStrategy(DetectionTrackingStrategy):
                 for box_xyxy, label, score in zip(pred_boxes_xyxy, pred_labels, pred_scores):
                     # Assuming COCO index 1 for person in rfdetr model
                     is_person = (label == self.person_label_index)
-                    if is_person and score >= self.confidence_threshold: # Check threshold again just in case predict didn't filter perfectly
+                    if is_person and score >= self.confidence_threshold:  # Check threshold again just in case predict didn't filter perfectly
                         x1, y1, x2, y2 = box_xyxy
                         width = x2 - x1
                         height = y2 - y1
@@ -316,10 +281,10 @@ class RfDetrStrategy(DetectionTrackingStrategy):
                             center_x = x1 + width / 2
                             center_y = y1 + height / 2
                             boxes_xywh.append([center_x, center_y, width, height])
-                            track_ids.append(self.placeholder_track_id) # RFDETR likely provides no tracking IDs
+                            track_ids.append(self.placeholder_track_id)  # RFDETR likely provides no tracking IDs
                             confidences.append(float(score))
             else:
-                 logger.warning("RF-DETR predict returned None or unexpected Detections object structure.")
+                logger.warning("RF-DETR predict returned None or unexpected Detections object structure.")
 
         except Exception as e:
             logger.error(f"Error during RF-DETR processing step: {e}", exc_info=True)
@@ -327,21 +292,10 @@ class RfDetrStrategy(DetectionTrackingStrategy):
 
         return boxes_xywh, track_ids, confidences
 
-# --- Factory function to get the strategy instance ---
+
 def get_strategy(model_config: Dict[str, Any], device: torch.device) -> DetectionTrackingStrategy:
     """
     Factory function to instantiate the correct detection strategy based on config.
-
-    Args:
-        model_config: Dictionary containing model configuration ('type', 'weights_path', etc.).
-        device: The torch.device to use.
-
-    Returns:
-        An instance of a DetectionTrackingStrategy subclass.
-
-    Raises:
-        ValueError: If the model type in the config is unsupported.
-        ImportError: If the required library for the model type is not installed.
     """
     model_type = model_config.get("type", "").lower()
     model_path = model_config.get("weights_path", "")
@@ -353,7 +307,6 @@ def get_strategy(model_config: Dict[str, Any], device: torch.device) -> Detectio
     elif model_type == "fasterrcnn":
         return FasterRCNNStrategy(model_path, device, model_config)
     elif model_type == "rfdetr":
-         # Note: RFDETR strategy might have specific dependencies or initialization nuances
         return RfDetrStrategy(model_path, device, model_config)
     else:
         raise ValueError(f"Unsupported model_type: {model_type}. Must be one of "
