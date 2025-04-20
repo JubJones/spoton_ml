@@ -1,42 +1,42 @@
-# Experiment Configuration
-
-run_name: "baseline_experiment"
+run_name: "fasterrcnn_factory_s10_100frames" # Example: descriptive run name
 
 environment:
-  # device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
-  device: "auto"
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
 
 data:
-  base_path: "/Volumes/HDD/MTMMC/train/train/"
+  base_path: "/Volumes/HDD/MTMMC"
+  selected_environment: "factory" # Options: "factory", "campus"
 
+# --- Environment Specific Settings ---
+  # Note: The actual scene path will be constructed as base_path/train/train/scene_id
   campus:
     scene_id: "s47"
     camera_ids: [ "c01", "c02", "c03", "c05" ]
+    max_frames_per_camera: 500
 
   factory:
     scene_id: "s10"
     camera_ids: [ "c09", "c12", "c13", "c16" ]
+    max_frames_per_camera: 500
 
 model:
-  # Options: "yolo", "rtdetr", "fasterrcnn", "rfdetr"
-  type: "fasterrcnn"
-  # Options: "fasterrcnn_resnet50_fpn", "rtdetr-x.pt", "rfdetr_l", "yolov11x.pt", "yolov11l.pt", "yolov9e.pt"
-  weights_path: "models/fasterrcnn_resnet50_fpn"
-  # Detection confidence threshold
+  type: "fasterrcnn"  # Options: "yolo", "rtdetr", "fasterrcnn", "rfdetr" (Match keys in strategies.py)
+  weights_path: "fasterrcnn_resnet50_fpn"  # Options: "yolov11x.pt", "rtdetr-x.pt", "rfdetr_l", "fasterrcnn_resnet50_fpn"
   confidence_threshold: 0.5
-  # Class ID for person (COCO default is 0) but torchvision models use 1 for person
-  person_class_id: 1
+  person_class_id: 1  # COCO=0, torchvision=1
+  input_width: 640
 
-# Tracker specific configuration
 tracker:
-  # Maximum length of trajectory history to keep per track ID
-  history_length: 200
+  history_length: 400
 
-# MLflow Configuration (will be used later)
 mlflow:
-  experiment_name: "Person Detection Tracking"
-  # tracking_uri: set via environment variable MLFLOW_TRACKING_URI or dagshub login
+  experiment_name: "Person Detection Comparison MTMMC"
 
-# Evaluation Configuration (will be used by evaluate.py later)
 evaluation:
   iou_threshold: 0.5
+
+logging_metrics:
+  - avg_inference_time_ms_per_frame
+  - total_person_detections
+  - avg_detections_per_frame
+  - processing_fps
