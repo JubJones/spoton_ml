@@ -12,12 +12,12 @@ data:
   campus:
     scene_id: "s47"
     camera_ids: [ "c01", "c02", "c03", "c05" ]
-    max_frames_per_camera: 500
+    max_frames_per_camera: 500  # Or -1
 
   factory:
     scene_id: "s10"
     camera_ids: [ "c09", "c12", "c13", "c16" ]
-    max_frames_per_camera: 500
+    max_frames_per_camera: 500   # Or -1
 
 model:
   type: "fasterrcnn"  # Options: "yolo", "rtdetr", "fasterrcnn", "rfdetr" (Match keys in strategies.py)
