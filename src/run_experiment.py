@@ -21,7 +21,7 @@ try:
     from src.utils.config_loader import load_config
     from src.tracking.device_utils import get_selected_device
     from src.data.loader import FrameDataLoader
-    from src.tracking.strategies import get_strategy, DetectionStrategy
+    from src.tracking.strategies import get_strategy, DetectionTrackingStrategy
 except ImportError as e:
     print(f"Error importing local modules: {e}")
     print("Ensure you are running this script from the project root or that src is in PYTHONPATH.")
