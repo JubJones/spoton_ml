@@ -5,10 +5,11 @@ import time
 import warnings
 from collections import defaultdict
 from pathlib import Path
+from typing import Optional
 
 import dagshub
+import torch
 import mlflow
-import numpy as np
 from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -21,7 +22,7 @@ try:
     from src.utils.config_loader import load_config
     from src.tracking.device_utils import get_selected_device
     from src.data.loader import FrameDataLoader
-    from src.tracking.strategies import get_strategy, DetectionTrackingStrategy
+    from src.tracking.strategies import get_strategy, DetectionTrackingStrategy  # Corrected import alias if needed
 except ImportError as e:
     print(f"Error importing local modules: {e}")
     print("Ensure you are running this script from the project root or that src is in PYTHONPATH.")
@@ -30,7 +31,7 @@ except ImportError as e:
 # --- Basic Logging Setup ---
 log_file = PROJECT_ROOT / "experiment.log"
 if log_file.exists():
-    open(log_file, 'w').close()
+    open(log_file, 'w').close()  # Clear log file on start
 
 logging.basicConfig(
     level=logging.INFO,
@@ -49,7 +50,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)  # Often from numpy/pa
 
 
 # --- MLflow & Dagshub Setup ---
-def setup_mlflow(mlflow_config: dict, config_path: str):
+def setup_mlflow(mlflow_config: dict, config_path: str) -> Optional[str]:  # Return experiment_id or None
     """Initializes Dagshub and sets MLflow tracking URI and experiment."""
     try:
         dotenv_path = PROJECT_ROOT / '.env'
@@ -110,7 +111,6 @@ def setup_mlflow(mlflow_config: dict, config_path: str):
 
 # --- Main Experiment Logic ---
 def run_experiment():
-    """Loads config, runs detection, and logs results to MLflow."""
     logger.info("--- Starting Experiment ---")
     config_path_str = "configs/experiment_config.yaml"
     config = load_config(config_path_str)
@@ -118,14 +118,14 @@ def run_experiment():
         logger.critical("Failed to load configuration. Exiting.")
         sys.exit(1)
 
-    # --- Setup MLflow ---
     experiment_id = setup_mlflow(config.get("mlflow", {}), config_path_str)
     if not experiment_id:
         logger.critical("MLflow setup failed. Exiting.")
         sys.exit(1)
 
-    # --- Start MLflow Run ---
     run_name = config.get("run_name", "unnamed_run")
+    run_id = None  # Initialize run_id
+
     try:
         with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
             run_id = run.info.run_id
@@ -134,25 +134,21 @@ def run_experiment():
             # --- Log Parameters ---
             logger.info("Logging parameters...")
             try:
-                # Log parameters recursively (handle nested dicts)
                 def log_params_recursive(params_dict, parent_key=""):
                     for key, value in params_dict.items():
                         mlflow_key = f"{parent_key}.{key}" if parent_key else key
                         if isinstance(value, dict):
                             log_params_recursive(value, mlflow_key)
                         elif isinstance(value, list):
-                            # Log lists as comma-separated strings or JSON strings
                             try:
                                 import json
                                 mlflow.log_param(mlflow_key, json.dumps(value))
-                            except:  # Fallback for non-serializable lists
+                            except:
                                 mlflow.log_param(mlflow_key, str(value)[:250])
                         else:
-                            # Truncate long values (e.g., paths) if necessary
                             mlflow.log_param(mlflow_key, str(value)[:250])
 
                 log_params_recursive(config)
-                # Log the config file itself as an artifact for full reproducibility
                 mlflow.log_artifact(str(PROJECT_ROOT / config_path_str), artifact_path="config")
                 logger.info("Parameters and config artifact logged.")
             except Exception as e:
@@ -164,13 +160,23 @@ def run_experiment():
                 device = get_selected_device(device_name)
 
                 model_config = config.get("model", {})
-                detection_strategy: DetectionStrategy = get_strategy(model_config, device)
-                logger.info(f"Using detection strategy: {detection_strategy.__class__.__name__}")
+                model_type = model_config.get("type", "").lower()
+
+                # --- FasterRCNN Device Override ---
+                if model_type == "fasterrcnn" and device.type != 'cuda':
+                    logger.warning(f"FasterRCNN selected and device is '{device.type}'. Forcing to CPU.")
+                    device = torch.device('cpu')
+                    mlflow.log_param("environment.actual_device_used", "cpu (overridden for fasterrcnn)")
+                else:
+                    mlflow.log_param("environment.actual_device_used",
+                                     str(device))  # Log the originally determined device
+
+                detection_strategy: DetectionTrackingStrategy = get_strategy(model_config, device)
+                logger.info(f"Using detection strategy: {detection_strategy.__class__.__name__} on device: {device}")
 
             except (ValueError, ImportError, Exception) as e:
                 logger.critical(f"Failed to initialize device or strategy: {e}", exc_info=True)
-                mlflow.set_terminated(status="FAILED", state_message=f"Initialization Error: {e}")
-                sys.exit(1)
+                raise RuntimeError(f"Initialization Error: {e}") from e
 
             # --- Setup Data Loader ---
             try:
@@ -185,29 +191,25 @@ def run_experiment():
                     f"Data loader initialized. Processing {total_frame_indices} frame indices across {len(actual_cameras_used)} cameras: {actual_cameras_used}.")
                 logger.info(f"Estimated total frames to process: {total_frames_to_process}")
 
-                # Log the *actual* cameras used, in case some were skipped
                 mlflow.log_param("data.actual_cameras_used", ",".join(actual_cameras_used))
                 mlflow.log_param("data.actual_frame_indices_processed", total_frame_indices)
 
             except (FileNotFoundError, ValueError, RuntimeError) as e:
                 logger.critical(f"Failed to initialize data loader: {e}", exc_info=True)
-                mlflow.set_terminated(status="FAILED", state_message=f"Data Loading Error: {e}")
-                sys.exit(1)
+                raise RuntimeError(f"Data Loading Error: {e}") from e
 
             # --- Processing Loop ---
             logger.info("Starting frame processing loop...")
-            frame_counter = 0  # Counts total frames processed across all cameras
-            processed_indices = set()  # Keep track of unique frame indices processed
+            frame_counter = 0
+            processed_indices = set()
             total_inference_time_ms = 0
             total_detections = 0
-            # Use defaultdict to store per-camera stats easily
             detections_per_camera = defaultdict(int)
             inference_time_per_camera = defaultdict(float)
             frame_count_per_camera = defaultdict(int)
 
             start_time_total = time.perf_counter()
 
-            # --- Main Loop ---
             for frame_idx, cam_id, filename, frame_bgr in data_loader:
                 if frame_bgr is None:
                     logger.debug(f"Skipping Frame {frame_idx} for Cam {cam_id} (Load failed)")
@@ -216,25 +218,25 @@ def run_experiment():
                 frame_counter += 1
                 frame_count_per_camera[cam_id] += 1
                 processed_indices.add(frame_idx)
-                logger.debug(f"Processing Frame Idx {frame_idx} (Total: {frame_counter}) - Cam: {cam_id} - File: {filename}")
+                logger.debug(
+                    f"Processing Frame Idx {frame_idx} (Total: {frame_counter}) - Cam: {cam_id} - File: {filename}")
 
-                # --- Run Detection ---
                 start_time_inference = time.perf_counter()
-                boxes_xyxy, confidences, classes = detection_strategy.process_frame(frame_bgr)
+                # Correct unpacking based on strategies.py return type hint and implementation
+                boxes_xywh, track_ids, confidences = detection_strategy.process_frame(frame_bgr)
                 end_time_inference = time.perf_counter()
 
-                # --- Collect Metrics ---
                 inference_time_ms = (end_time_inference - start_time_inference) * 1000
-                # Note: Some strategies might already pre-filter, but this is a safeguard
-                person_mask = (classes == detection_strategy.person_class_id)
-                num_person_detections_frame = np.sum(person_mask)
+
+                # Strategies filter internally, so the count is the length of returned items
+                num_person_detections_frame = len(boxes_xywh)
 
                 total_inference_time_ms += inference_time_ms
                 total_detections += num_person_detections_frame
                 detections_per_camera[cam_id] += num_person_detections_frame
                 inference_time_per_camera[cam_id] += inference_time_ms
 
-                if frame_counter % 100 == 0:  # Log progress periodically
+                if frame_counter % 100 == 0:
                     logger.info(f"Processed {frame_counter}/{total_frames_to_process} frames... "
                                 f"(Index {frame_idx}/{total_frame_indices - 1}) "
                                 f"Last frame ({cam_id}): {num_person_detections_frame} pers_dets, {inference_time_ms:.2f} ms")
@@ -267,7 +269,6 @@ def run_experiment():
                 mlflow.log_metric("avg_detections_per_frame", round(avg_detections, 2))
                 mlflow.log_metric("processing_fps", round(processing_fps, 2))
 
-                # Log per-camera metrics
                 for cam_id in actual_cameras_used:
                     cam_frames = frame_count_per_camera.get(cam_id, 0)
                     cam_dets = detections_per_camera.get(cam_id, 0)
@@ -281,23 +282,22 @@ def run_experiment():
                     mlflow.log_metric(f"avg_dets_cam_{cam_id}", round(avg_dets_cam, 2))
 
                 logger.info("Metrics logged.")
-                mlflow.set_terminated(status="FINISHED")
+                # Context manager handles FINISHED status
 
             else:
                 logger.warning("No frames were processed successfully. No metrics to log.")
-                mlflow.set_terminated(status="FAILED", state_message="No frames processed")
+                raise RuntimeError("No frames processed")  # Mark run as FAILED
 
-    # --- Handle potential errors during MLflow run context ---
     except KeyboardInterrupt:
         logger.warning("Experiment interrupted by user (KeyboardInterrupt).")
-        print("MLflow run likely marked as KILLED.")
+        print("\nMLflow run likely marked as KILLED or FAILED.")
         sys.exit(1)
     except Exception as e:
         logger.critical(f"An error occurred during the experiment run: {e}", exc_info=True)
-        print(f"MLflow run likely marked as FAILED due to: {e}")
-        sys.exit(1)  # Exit with error status
+        print(f"\nMLflow run likely marked as FAILED due to: {e}")
+        sys.exit(1)
 
-    logger.info(f"--- Experiment Run {run_id if 'run_id' in locals() else 'UNKNOWN'} Completed ---")
+    logger.info(f"--- Experiment Run {run_id if run_id else 'UNKNOWN'} Completed ---")
 
 
 if __name__ == "__main__":
