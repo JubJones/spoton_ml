@@ -5,9 +5,10 @@ pyyaml
 opencv-python
 
 # ML Frameworks & Models
-torch
-torchvision
-torchaudio
+# Window needs to install torch separately
+#torch
+#torchvision
+#torchaudio
 ultralytics
 rfdetr
 boxmot

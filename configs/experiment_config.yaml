@@ -5,6 +5,7 @@ environment:
 
 data:
   base_path: "/Volumes/HDD/MTMMC"
+#  base_path: "D:/MTMMC"
   selected_environment: "factory" # Options: "factory", "campus"
 
 # --- Environment Specific Settings ---
