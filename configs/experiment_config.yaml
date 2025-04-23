@@ -33,9 +33,6 @@ tracker:
 mlflow:
   experiment_name: "Person Detection Comparison MTMMC"
 
-evaluation:
-  iou_threshold: 0.5
-
 logging_metrics:
   - avg_inference_time_ms_per_frame
   - total_person_detections

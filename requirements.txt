@@ -6,9 +6,11 @@ opencv-python
 
 # ML Frameworks & Models
 # Window needs to install torch separately
+# pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
 #torch
 #torchvision
 #torchaudio
+torchmetrics
 ultralytics
 rfdetr
 boxmot
