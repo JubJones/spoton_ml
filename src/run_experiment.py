@@ -20,7 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 # --- Local Imports ---
 try:
     from src.utils.config_loader import load_config
-    from src.tracking.device_utils import get_selected_device
+    from src.utils.device_utils import get_selected_device
     from src.pipelines.detection_pipeline import DetectionPipeline
 except ImportError as e:
     print(f"Error importing local modules: {e}")
@@ -184,7 +184,7 @@ def main():
     elif requested_device.type == 'mps' and model_type not in ['yolo',
                                                                'rtdetr']:  # Example if other models don't support MPS well
         logger.warning(
-            f"Model type '{model_type}' may have limited support on MPS device. Using {requested_device.type}.")
+            f"Model type '{model_type}' may have limited support on MPS device. Using cpu.")
         actual_device = torch.device('cpu')
         device_override_reason = f"Model {model_type} potentially incompatible with MPS, using {actual_device.type}"
         pass
