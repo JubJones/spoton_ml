@@ -4,8 +4,8 @@ environment:
   device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
 
 data:
-  base_path: "/Volumes/HDD/MTMMC"
-#  base_path: "D:/MTMMC"
+#  base_path: "/Volumes/HDD/MTMMC"
+  base_path: "D:/MTMMC"
   selected_environment: "factory" # Options: "factory", "campus"
 
 # --- Environment Specific Settings ---

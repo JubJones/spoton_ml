@@ -130,12 +130,12 @@ def load_ground_truth(
 
 
 def calculate_metrics_with_map(
-        results: Dict[str, Any],
-        active_camera_ids: List[str],
-        all_predictions: List[Dict[str, torch.Tensor]],
-        all_targets: List[Dict[str, torch.Tensor]],
-        person_class_index: int,
-        device: torch.device
+    results: Dict[str, Any],
+    active_camera_ids: List[str],
+    all_predictions: List[Dict[str, torch.Tensor]], # List of predictions per image
+    all_targets: List[Dict[str, torch.Tensor]],     # List of targets per image
+    person_class_index: int, # The index corresponding to the 'person' class
+    device: torch.device # Device for metric calculation (can be CPU)
 ) -> Dict[str, Any]:
     """
     Calculates aggregate performance metrics AND mAP using torchmetrics.
@@ -143,16 +143,17 @@ def calculate_metrics_with_map(
     metrics = {}
     logger.info("Calculating aggregate performance and mAP metrics...")
 
-    # --- Standard Performance Metrics ---
+    # --- Standard Performance Metrics (Copied from original) ---
+    # ... (This part remains unchanged) ...
     frame_counter = results.get('frame_counter', 0)
     if frame_counter == 0:
         logger.warning("No frames were processed successfully. Cannot calculate metrics.")
         return metrics
 
     total_processing_time_sec = results.get('total_processing_time_sec', 0)
-    total_inference_time_ms = results.get('total_inference_time_ms', 0)  # Renamed from results value for clarity
+    total_inference_time_ms = results.get('total_inference_time_ms', 0)
     avg_inference_time_ms = total_inference_time_ms / frame_counter if frame_counter > 0 else 0
-    total_person_detections = results.get('total_person_detections', 0)  # Renamed from results value for clarity
+    total_person_detections = results.get('total_person_detections', 0)
     avg_detections = total_person_detections / frame_counter if frame_counter > 0 else 0
     processing_fps = frame_counter / total_processing_time_sec if total_processing_time_sec > 0 else 0
 
@@ -172,7 +173,9 @@ def calculate_metrics_with_map(
     logger.info(f"Overall Processing FPS: {metrics['processing_fps']:.2f} frames/sec")
     logger.info(f"Total Person Detections Found: {metrics['total_person_detections']}")
 
-    # --- Per-Camera Performance Metrics ---
+
+    # --- Per-Camera Performance Metrics (Copied from original) ---
+    # ... (This part remains unchanged) ...
     frame_count_per_camera = results.get('frame_count_per_camera', {})
     detections_per_camera = results.get('detections_per_camera', {})
     inference_time_per_camera = results.get('inference_time_per_camera', {})
@@ -189,82 +192,134 @@ def calculate_metrics_with_map(
         metrics[f"avg_inf_ms_cam_{cam_id}"] = round(avg_inf_cam, 2)
         metrics[f"avg_dets_cam_{cam_id}"] = round(avg_dets_cam, 2)
 
+
     # --- mAP Calculation ---
+    # ...(Initialization and checks remain the same)...
     if MeanAveragePrecision is None:
         logger.error("torchmetrics not available. Skipping mAP calculation.")
-        metrics["map"] = 0.0
-        metrics["map_50"] = 0.0
-        metrics["map_75"] = 0.0
-        # Add other mAP metrics as 0 or N/A
+        # Add placeholder metrics
+        metrics["eval_map"] = 0.0
+        metrics["eval_map_50"] = 0.0
+        metrics["eval_map_75"] = 0.0
         return metrics
 
     if not all_predictions or not all_targets:
         logger.warning("No predictions or targets were collected (or GT not available). Skipping mAP calculation.")
-        metrics["map"] = 0.0
-        metrics["map_50"] = 0.0
-        metrics["map_75"] = 0.0
-        # Add other mAP metrics as 0 or N/A
+        # Add placeholder metrics
+        metrics["eval_map"] = 0.0
+        metrics["eval_map_50"] = 0.0
+        metrics["eval_map_75"] = 0.0
         return metrics
 
     if len(all_predictions) != len(all_targets):
-        logger.error(
-            f"Mismatch between number of predictions ({len(all_predictions)}) and targets ({len(all_targets)}). Cannot calculate mAP.")
-        # Handle error state appropriately
-        return metrics
+         logger.error(f"Mismatch between number of predictions ({len(all_predictions)}) and targets ({len(all_targets)}). Cannot calculate mAP.")
+         # Add placeholder metrics
+         metrics["eval_map"] = 0.0
+         metrics["eval_map_50"] = 0.0
+         metrics["eval_map_75"] = 0.0
+         return metrics
+
 
     logger.info("Calculating mAP using torchmetrics...")
     metric_device = torch.device('cpu')
     logger.info(f"Using device '{metric_device}' for mAP calculation.")
 
     try:
-        # Initialize the metric - uses COCO defaults (IoU range 0.5:0.05:0.95)
         metric = MeanAveragePrecision(box_format='xyxy', class_metrics=True).to(metric_device)
 
-        # Move data to the metric device and update
         preds_on_device = [{k: v.to(metric_device) for k, v in p.items()} for p in all_predictions]
         targets_on_device = [{k: v.to(metric_device) for k, v in t.items()} for t in all_targets]
 
         metric.update(preds_on_device, targets_on_device)
-
         map_results = metric.compute()
 
-        # Log and store the results
         logger.info("--- mAP Results (COCO Standard IoUs) ---")
         main_map_keys = ['map', 'map_50', 'map_75', 'map_small', 'map_medium', 'map_large']
         main_mar_keys = ['mar_1', 'mar_10', 'mar_100', 'mar_small', 'mar_medium', 'mar_large']
 
         for key in main_map_keys + main_mar_keys:
             if key in map_results:
-                value = map_results[key].item()  # Get scalar value from tensor
+                value = map_results[key].item() # Get scalar value from tensor
                 metrics[f"eval_{key}"] = round(value, 4)
                 logger.info(f"{key:<12}: {metrics[f'eval_{key}']:.4f}")
 
-        # Optionally log per-class AP if class_metrics=True was used
+        # --- Per-Class AP Logging (Robust check added) ---
         if 'map_per_class' in map_results and map_results['map_per_class'] is not None:
-            map_per_class = map_results['map_per_class'].cpu().numpy()
-            classes = map_results.get('classes', None)
-            if classes is not None and len(classes) == len(map_per_class):
+            map_per_class_tensor = map_results['map_per_class'] # Keep as tensor initially
+            classes_tensor = map_results.get('classes', None)
+
+            # *** MODIFIED CHECK ***
+            # Check if both are 1D tensors and have matching lengths before zipping
+            valid_per_class_data = (
+                classes_tensor is not None and isinstance(classes_tensor, torch.Tensor) and classes_tensor.ndim == 1 and
+                map_per_class_tensor is not None and isinstance(map_per_class_tensor, torch.Tensor) and map_per_class_tensor.ndim == 1 and
+                len(classes_tensor) == len(map_per_class_tensor)
+            )
+            # *** END MODIFIED CHECK ***
+
+            if valid_per_class_data:
+                map_per_class_np = map_per_class_tensor.cpu().numpy()
+                classes_np = classes_tensor.cpu().numpy() # Convert class indices to numpy
+
                 logger.info("--- AP per Class ---")
-                for cls_idx, cls_ap in zip(classes, map_per_class):
+                found_person_ap = False
+                for cls_idx_np, cls_ap_np in zip(classes_np, map_per_class_np):
+                    cls_idx = int(cls_idx_np) # Ensure it's a Python int
+                    cls_ap = cls_ap_np.item() # Get scalar value
                     metric_key = f"eval_ap_class_{cls_idx}"
                     metrics[metric_key] = round(cls_ap, 4)
                     logger.info(f"Class {cls_idx:<5}: {metrics[metric_key]:.4f}")
+
                     if cls_idx == person_class_index:
                         metrics["eval_ap_person"] = metrics[metric_key]
                         logger.info(f"  -> Person AP: {metrics['eval_ap_person']:.4f}")
+                        found_person_ap = True
+
+                if not found_person_ap:
+                     logger.warning(f"Person class index {person_class_index} not found in computed per-class AP results.")
+                     metrics["eval_ap_person"] = 0.0 # Add placeholder if not found
+
             else:
-                if person_class_index < len(map_per_class):
-                    metrics["eval_ap_person"] = round(map_per_class[person_class_index], 4)
-                    logger.info(f"AP for Person Class (Index {person_class_index}): {metrics['eval_ap_person']:.4f}")
+                # Fallback if classes tensor isn't valid or doesn't match map_per_class
+                logger.warning("Could not parse per-class AP results as expected (check tensor dimensions/types). Attempting fallback for person AP.")
+                # Try to extract person AP based on index if map_per_class is usable
+                if map_per_class_tensor is not None and isinstance(map_per_class_tensor, torch.Tensor):
+                    try:
+                        # Handle scalar case (0-d tensor) - likely only one class result
+                        if map_per_class_tensor.ndim == 0:
+                            person_ap_value = map_per_class_tensor.item()
+                            metrics["eval_ap_person"] = round(person_ap_value, 4)
+                            logger.info(f"AP for Person Class (Index {person_class_index} - Fallback, scalar result): {metrics['eval_ap_person']:.4f}")
+                        # Handle 1-d tensor case, check index bounds
+                        elif map_per_class_tensor.ndim == 1 and person_class_index < len(map_per_class_tensor):
+                            person_ap_value = map_per_class_tensor[person_class_index].item()
+                            metrics["eval_ap_person"] = round(person_ap_value, 4)
+                            logger.info(f"AP for Person Class (Index {person_class_index} - Fallback): {metrics['eval_ap_person']:.4f}")
+                        else:
+                            logger.warning(f"Cannot determine person AP from map_per_class tensor with shape {map_per_class_tensor.shape}")
+                            metrics["eval_ap_person"] = 0.0
+                    except IndexError:
+                        logger.warning(f"Person class index {person_class_index} out of bounds for map_per_class tensor during fallback.")
+                        metrics["eval_ap_person"] = 0.0
+                    except Exception as fallback_err:
+                        logger.warning(f"Error during fallback person AP extraction: {fallback_err}")
+                        metrics["eval_ap_person"] = 0.0
+                else:
+                     logger.warning("map_per_class tensor not available or not a tensor for fallback.")
+                     metrics["eval_ap_person"] = 0.0
 
 
     except Exception as e:
         logger.error(f"Failed to compute mAP: {e}", exc_info=True)
+        # Add placeholder metrics
         metrics["eval_map"] = 0.0
         metrics["eval_map_50"] = 0.0
         metrics["eval_map_75"] = 0.0
+        metrics["eval_ap_person"] = 0.0 # Add placeholder here too
 
+    # --- Deprecated TP/FP/FN based metrics (optional: keep for reference or remove) ---
     metrics["eval_total_gt_boxes"] = results.get('total_gt_boxes', 0)
+    metrics["eval_precision_single_iou"] = 0.0 # Mark as deprecated/unused
     metrics["eval_recall_single_iou"] = 0.0
     metrics["eval_f1_score_single_iou"] = 0.0
     metrics["eval_total_tp_single_iou"] = 0
