@@ -10,7 +10,6 @@ from PIL import Image
 
 # Conditional imports for models - improves portability if some aren't installed
 try:
-    from ultralytics import YOLO, RTDETR
 except ImportError:
     YOLO, RTDETR = None, None
     logging.warning("Ultralytics library not found. YOLO and RTDETR strategies unavailable.")
