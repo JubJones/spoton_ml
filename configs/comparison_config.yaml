@@ -1,0 +1,51 @@
+comparison_run_name_prefix: "mtmmc_detection_comparison"
+mlflow_experiment_name: "Detection Models Comparison"
+
+environment:
+  device: "auto"
+  seed: 123
+
+data:
+  base_path: "D:/MTMMC"
+  selected_environment: "factory" # "factory" or "campus"
+
+  # --- Environment Specific Settings ---
+  campus:
+    scene_id: "s47"
+    camera_ids: [ "c01", "c02", "c03", "c05" ]
+    max_frames_per_camera: 100
+
+  factory:
+    scene_id: "s10"
+    camera_ids: [ "c09", "c12", "c13", "c16" ]
+    max_frames_per_camera: 100
+
+# --- Models to Compare ---
+models_to_compare:
+  - model_name: "yolo11x"
+    type: "yolo"
+    weights_path: "yolo11x.pt"
+    confidence_threshold: 0.5
+    person_class_id: 0
+    input_width: 640
+
+  - model_name: "rtdetr_x"
+    type: "rtdetr"
+    weights_path: "rtdetr-x.pt"
+    confidence_threshold: 0.5
+    person_class_id: 0
+    input_width: 640
+
+  - model_name: "fasterrcnn_resnet50"
+    type: "fasterrcnn"
+    weights_path: "FasterRCNN_ResNet50_FPN_Weights.DEFAULT"
+    confidence_threshold: 0.5
+    person_class_id: 1
+    input_width: 640
+
+  - model_name: "rfdetr_l"
+    type: "rfdetr"
+    weights_path: "rfdetr_l"
+    confidence_threshold: 0.5
+    person_class_id: 1
+    input_width: 640

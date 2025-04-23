@@ -29,4 +29,4 @@ model:
   input_width: 640
 
 mlflow:
-  experiment_name: "Person Detection Comparison MTMMC"
+  experiment_name: "Person Detection One model"
