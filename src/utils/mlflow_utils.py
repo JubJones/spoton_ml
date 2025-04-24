@@ -1,3 +1,4 @@
+# FILE: src/utils/mlflow_utils.py
 import logging
 import os
 from pathlib import Path
@@ -29,50 +30,91 @@ def setup_mlflow_experiment(config: Dict[str, Any], default_experiment_name: str
     else:
         logger.info(".env file not found, relying on environment or defaults.")
 
-    # Attempt Dagshub initialization if library is available
+    # Attempt Dagshub initialization first
+    dagshub_initialized = False
     if dagshub:
         try:
+            # Check if repo owner/name are already set (e.g., by DagsHub environment)
+            # Use getenv as fallback if not directly configured
             repo_owner = os.getenv("DAGSHUB_REPO_OWNER", "DefaultOwner")
             repo_name = os.getenv("DAGSHUB_REPO_NAME", "DefaultRepo")
             dagshub.init(repo_owner=repo_owner, repo_name=repo_name, mlflow=True)
             logger.info(f"Dagshub initialized for {repo_owner}/{repo_name}.")
-            logger.info(f"MLflow tracking URI set by Dagshub: {mlflow.get_tracking_uri()}")
+            # Check if URI was actually set by dagshub.init
+            if mlflow.get_tracking_uri() is not None:
+                logger.info(f"MLflow tracking URI set by Dagshub: {mlflow.get_tracking_uri()}")
+                dagshub_initialized = True
+            else:
+                logger.warning("Dagshub init called but MLflow tracking URI is still None.")
         except Exception as dag_err:
             logger.warning(f"Dagshub initialization failed: {dag_err}. Checking MLFLOW_TRACKING_URI.")
     else:
-        logger.info("Dagshub library not installed. Checking MLFLOW_TRACKING_URI.")
+        logger.info("Dagshub library not installed or available. Checking MLFLOW_TRACKING_URI.")
 
-    # Set tracking URI if not already set by Dagshub
-    if not mlflow.tracking.utils._is_tracking_uri_set():
+    # Set tracking URI from environment or default to local only if Dagshub didn't set it
+    if not dagshub_initialized:
         tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
         if tracking_uri:
-            mlflow.set_tracking_uri(tracking_uri)
-            logger.info(f"MLflow tracking URI set from environment variable: {tracking_uri}")
+            try:
+                mlflow.set_tracking_uri(tracking_uri)
+                logger.info(f"MLflow tracking URI set from environment variable: {tracking_uri}")
+            except Exception as uri_err:
+                logger.error(f"Failed to set tracking URI from environment variable '{tracking_uri}': {uri_err}. Falling back to local.")
+                dagshub_initialized = False # Ensure fallback happens
+                # Need to reset dagshub_initialized flag if setting URI fails
         else:
-            logger.warning("MLFLOW_TRACKING_URI not set and Dagshub setup failed/skipped. Using local tracking.")
-            local_mlruns = PROJECT_ROOT / "mlruns"
-            local_mlruns.mkdir(exist_ok=True)
-            mlflow.set_tracking_uri(f"file://{local_mlruns.resolve()}")
-            logger.info(f"MLflow tracking URI set to local: {mlflow.get_tracking_uri()}")
+             logger.info("MLFLOW_TRACKING_URI environment variable not found.")
+
+
+        # Check again if a URI is set (either by failed env var setting attempt or if env var wasn't set)
+        # We rely on mlflow defaulting to local './mlruns' if no URI is set,
+        # but explicitly setting it makes it clearer and ensures the directory exists.
+        current_uri = mlflow.get_tracking_uri()
+        # Default local URI is usually 'file:./mlruns' or absolute path to it.
+        # Check if it's None or the default relative path before setting absolute local path.
+        # Using a more robust check: if no non-local URI was set.
+        if not dagshub_initialized and (not tracking_uri or current_uri is None or current_uri.startswith("file:")):
+             logger.warning("No remote tracking URI configured (Dagshub/MLFLOW_TRACKING_URI). Using local tracking.")
+             local_mlruns = PROJECT_ROOT / "mlruns"
+             local_mlruns.mkdir(parents=True, exist_ok=True)
+             # Use resolve() and as_uri() for cross-platform compatibility
+             local_uri = local_mlruns.resolve().as_uri()
+             mlflow.set_tracking_uri(local_uri)
+             logger.info(f"MLflow tracking URI explicitly set to local: {mlflow.get_tracking_uri()}")
+
 
     # Set or Create Experiment
     experiment_name = mlflow_config.get("experiment_name", default_experiment_name)
     logger.info(f"Attempting to set MLflow experiment to: '{experiment_name}'")
     try:
-        mlflow.set_experiment(experiment_name)
         client = MlflowClient()
+        # Check if client has a valid tracking URI now
+        if client.tracking_uri is None:
+            logger.critical("MLflow client still has no tracking URI configured after setup attempts. Exiting.")
+            return None
+
         experiment = client.get_experiment_by_name(experiment_name)
         if not experiment:
             logger.info(f"Experiment '{experiment_name}' not found. Creating...")
             experiment_id = client.create_experiment(experiment_name)
             logger.info(f"Created experiment '{experiment_name}' with ID: {experiment_id}")
+            # Re-fetch experiment after creation to ensure it's active
+            experiment = client.get_experiment(experiment_id)
+            if not experiment:
+                 logger.error(f"Failed to fetch experiment '{experiment_name}' immediately after creation.")
+                 return None
         elif experiment.lifecycle_stage != 'active':
-            logger.error(f"Experiment '{experiment_name}' exists but is deleted or archived.")
+            logger.error(f"Experiment '{experiment_name}' exists but is deleted or archived (lifecycle_stage: {experiment.lifecycle_stage}).")
             return None
         else:
             experiment_id = experiment.experiment_id
-            logger.info(f"Using existing experiment ID: {experiment_id}")
+            logger.info(f"Using existing active experiment ID: {experiment_id}")
+
+        # Explicitly set the experiment context for the current script run
+        mlflow.set_experiment(experiment_id=experiment_id)
+        logger.info(f"MLflow context set to experiment '{experiment_name}' (ID: {experiment_id})")
         return experiment_id
+
     except Exception as client_err:
         logger.error(f"Failed to set/get/create MLflow experiment '{experiment_name}': {client_err}", exc_info=True)
         return None
