@@ -103,7 +103,7 @@ def main():
 
                 model_specific_config = model_variation_config["model"]
                 model_name = model_specific_config.get("model_name", model_specific_config.get("type", "unknown"))
-                child_run_name = f"child_{model_name}"
+                child_run_name = f"{model_name}"
                 logger.info(f"\n--- Starting Nested Child Run for: {model_name} ---")
 
                 # Construct full config for the child run
