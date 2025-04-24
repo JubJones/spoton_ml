@@ -1,4 +1,7 @@
-run_name: "fasterrcnn_factory_s10" # Example: descriptive run name
+run_name: "fasterrcnn_factory_s10_single"
+
+mlflow:
+  experiment_name: "Person Detection Single Runs"
 
 environment:
   device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
@@ -14,19 +17,18 @@ data:
   campus:
     scene_id: "s47"
     camera_ids: [ "c01", "c02", "c03", "c05" ]
-    max_frames_per_camera: -1  # Or -1
+    max_frames_per_camera: 100 # Or -1
 
   factory:
     scene_id: "s10"
     camera_ids: [ "c09", "c12", "c13", "c16" ]
-    max_frames_per_camera: -1   # Or -1
+    max_frames_per_camera: 100 # Or -1
 
 model:
-  type: "fasterrcnn"  # Options: "yolo", "rtdetr", "fasterrcnn", "rfdetr" (Match keys in strategies.py)
-  weights_path: "fasterrcnn_resnet50_fpn"  # Options: "yolov11x.pt", "rtdetr-x.pt", "rfdetr_l", "fasterrcnn_resnet50_fpn"
+  # --- Model Specific Settings ---
+  model_name: "fasterrcnn_resnet50" # Added for clarity, can be used for tagging etc.
+  type: "fasterrcnn"  # Options: "yolo", "rtdetr", "fasterrcnn", "rfdetr"
+  weights_path: "FasterRCNN_ResNet50_FPN_Weights.DEFAULT"
   confidence_threshold: 0.5
   person_class_id: 1  # COCO=0, torchvision=1
   input_width: 640
-
-mlflow:
-  experiment_name: "Person Detection One model"
