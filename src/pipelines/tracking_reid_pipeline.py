@@ -11,32 +11,28 @@ from tqdm import tqdm
 
 # --- Corrected BoxMOT Imports ---
 try:
-    from boxmot.trackers.strongsort.strongsort import StrongSORT
-    from boxmot.trackers.botsort.botsort import BoTSORT
+    from boxmot.trackers.strongsort.strongsort import StrongSort
+    from boxmot.trackers.botsort.botsort import BotSort
     from boxmot.trackers.deepocsort.deepocsort import DeepOcSort
     from boxmot.trackers.ocsort.ocsort import OcSort
-    from boxmot.trackers.bytetrack.bytetrack import ByteTrack
     from boxmot.trackers.boosttrack.boosttrack import BoostTrack
     from boxmot.trackers.imprassoc.imprassoctrack import ImprAssocTrack
-
-    # Import base class for type hinting if needed
     from boxmot.trackers.basetracker import BaseTracker
 
     BOXMOT_AVAILABLE = True
     # Map tracker type strings (lowercase, from config) to the imported BoxMOT classes
     TRACKER_CLASSES: Dict[str, Type[BaseTracker]] = {
-        'strongsort': StrongSORT,
-        'botsort': BoTSORT,
+        'strongsort': StrongSort,
+        'botsort': BotSort,
         'deepocsort': DeepOcSort,
         'ocsort': OcSort,
-        'bytetrack': ByteTrack,
         'boosttrack': BoostTrack,
         'imprassoc': ImprAssocTrack,
     }
 except ImportError as e:
     logging.critical(f"Failed to import BoxMOT components. Tracking functionality unavailable. Error: {e}")
     BOXMOT_AVAILABLE = False
-    StrongSORT, BoTSORT, DeepOcSort, OcSort, ByteTrack, BoostTrack, ImprAssocTrack, BaseTracker = (
+    StrongSort, BotSort, DeepOcSort, OcSort, ByteTrack, BoostTrack, ImprAssocTrack, BaseTracker = (
         None, None, None, None, None, None, None, None
     )
     TRACKER_CLASSES = {}
