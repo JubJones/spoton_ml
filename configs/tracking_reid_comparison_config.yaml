@@ -1,0 +1,86 @@
+parent_run_name: "mtmmc_tracking_reid_comparison"
+
+mlflow:
+  experiment_name: "Tracking+ReID Comparison (BoxMOT)"
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+
+data:
+
+  base_path: "D:/MTMMC"
+  # base_path: "/Volumes/HDD/MTMMC"
+
+  weights_base_dir: "weights/reid"
+
+  # --- Environment / Scene Selection ---
+  selected_environment: "factory" # Options: "factory", "campus"
+
+  # --- Scene Specific Settings (Similar to Detection Config) ---
+  campus:
+    scene_id: "s47"
+    camera_ids: [ "c01", "c02", "c03", "c05" ]
+    max_frames_per_camera: 100 # Or -1
+
+  factory:
+    scene_id: "s10"
+    camera_ids: [ "c09", "c12", "c13", "c16" ]
+    max_frames_per_camera: 100 # Or -1
+
+# --- Trackers to Run ---
+trackers_to_run:
+  - "deepocsort"
+  - "strongsort"
+  - "botsort"
+  - "boosttrack"
+  - "imprassoc"
+
+# --- Re-ID Models to Associate with Trackers ---
+reid_models_to_associate:
+  # --- CLIP ViT Models ---
+  - model_type: "clip_vit_b16"
+    weights_path: "Duke_clipreid_ViT-B-16_60.pth"
+  - model_type: "clip_vit_b16"
+    weights_path: "Market1501_clipreid_ViT-B-16_60.pth"
+
+  # --- LMBN Models ---
+  - model_type: "lmbn_n"
+    weights_path: "lmbn_n_market.pth"
+  - model_type: "lmbn_n"
+    weights_path: "lmbn_n_duke.pth"
+
+  # --- OSNet Models ---
+  - model_type: "osnet_ibn_x1_0"
+    weights_path: "osnet_ibn_x1_0_msmt17_combineall_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip_jitter.pth"
+  - model_type: "osnet_ain_x1_0"
+    weights_path: "osnet_ain_x1_0_msmt17_256x128_amsgrad_ep50_lr0.0015_coslr_b64_fb10_softmax_labsmth_flip_jitter.pth"
+  - model_type: "osnet_x1_0"
+    weights_path: "osnet_x1_0_msmt17_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth"
+
+  # --- MLFN Models ---
+  - model_type: "mlfn"
+    weights_path: "mlfn_market_xent.pth"
+  - model_type: "mlfn"
+    weights_path: "mlfn_duke_xent.pth"
+
+  # --- HACNN Models ---
+  - model_type: "hacnn"
+    weights_path: "hacnn_market_xent.pth"
+  - model_type: "hacnn"
+    weights_path: "hacnn_duke_xent.pth"
+
+  # --- MobileNetV2 Models ---
+  - model_type: "mobilenetv2_x1_4"
+    weights_path: "mobilenetv2_1dot4_market.pth"
+  - model_type: "mobilenetv2_x1_4"
+    weights_path: "mobilenetv2_1dot4_duke.pth"
+
+  # --- ResNet50 Models ---
+  - model_type: "resnet50_fc512"
+    weights_path: "resnet50_fc512_msmt_xent.pth"
+  - model_type: "resnet50_fc512"
+    weights_path: "resnet50_fc512_market_xent.pth"
+
+evaluation:
+  person_class_id: 0
