@@ -1,14 +1,11 @@
 import abc
 import logging
 from pathlib import Path
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional
 
-import cv2
 import numpy as np
 import torch
-from PIL import Image
 
-# BoxMOT imports
 try:
     from boxmot.appearance.reid_auto_backend import ReidAutoBackend
     from boxmot.appearance.backends.base_backend import BaseModelBackend

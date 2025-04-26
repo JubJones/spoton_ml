@@ -1,4 +1,4 @@
-parent_run_name: "mtmmc_reid_comparison_query_gallery_v3"
+parent_run_name: "mtmmc_reid_comparison"
 
 mlflow:
   experiment_name: "Re-ID Models Comparison - Query/Gallery"
@@ -42,18 +42,93 @@ evaluation:
 
 # --- Re-ID Models to Run (as Child Runs) ---
 models_to_run:
-  - model: { model_type: "resnet50", weights_path: "resnet50_fc512_msmt17.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "resnet50", weights_path: "resnet50_fc512_market1501.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "mlfn", weights_path: "mlfn_market1501.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "mlfn", weights_path: "mlfn_dukemtmcreid.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "hacnn", weights_path: "hacnn_market1501.pt", input_size: [160, 64], feature_dim: 512 }
-  - model: { model_type: "hacnn", weights_path: "hacnn_dukemtmcreid.pt", input_size: [160, 64], feature_dim: 512 }
-  - model: { model_type: "mobilenetv2_x1_4", weights_path: "mobilenetv2_x1_4_market1501.pt", input_size: [256, 128], feature_dim: 1792 }
-  - model: { model_type: "mobilenetv2_x1_4", weights_path: "mobilenetv2_x1_4_dukemtmcreid.pt", input_size: [256, 128], feature_dim: 1792 }
-  - model: { model_type: "osnet_x1_0", weights_path: "osnet_x1_0_msmt17.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "osnet_ain_x1_0", weights_path: "osnet_ain_x1_0_msmt17.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "osnet_ibn_x1_0", weights_path: "osnet_ibn_x1_0_msmt17.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "lmbn_n", weights_path: "lmbn_n_duke.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "lmbn_n", weights_path: "lmbn_n_market.pt", input_size: [256, 128], feature_dim: 512 }
-  - model: { model_type: "clip", weights_path: "clip_market1501.pt", input_size: [224, 224], feature_dim: 512 }
-  - model: { model_type: "clip", weights_path: "clip_duke.pt", input_size: [224, 224], feature_dim: 512 }
+  # --- CLIP ViT Models ---
+  - model:
+      model_type: "clip_vit_b16"  # More specific type based on filename
+      weights_path: "Duke_clipreid_ViT-B-16_60.pth"
+      input_size: [224, 224]      # Assuming standard ViT/CLIP input
+      feature_dim: 512           # Keeping your value
+  - model:
+      model_type: "clip_vit_b16"
+      weights_path: "Market1501_clipreid_ViT-B-16_60.pth"
+      input_size: [224, 224]
+      feature_dim: 512
+
+  # --- LMBN Models ---
+  - model:
+      model_type: "lmbn_n"
+      weights_path: "lmbn_n_market.pth"
+      input_size: [256, 128]
+      feature_dim: 512
+  - model:
+      model_type: "lmbn_n"
+      weights_path: "lmbn_n_duke.pth"
+      input_size: [256, 128]
+      feature_dim: 512
+
+  # --- OSNet Models ---
+  - model:
+      model_type: "osnet_ibn_x1_0"
+      # Using full name for clarity, adjust if your loading logic simplifies this
+      weights_path: "osnet_ibn_x1_0_msmt17_combineall_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip_jitter.pth"
+      input_size: [256, 128]
+      feature_dim: 512
+  - model:
+      model_type: "osnet_ain_x1_0"
+      weights_path: "osnet_ain_x1_0_msmt17_256x128_amsgrad_ep50_lr0.0015_coslr_b64_fb10_softmax_labsmth_flip_jitter.pth"
+      input_size: [256, 128]
+      feature_dim: 512
+  - model:
+      model_type: "osnet_x1_0"
+      weights_path: "osnet_x1_0_msmt17_256x128_amsgrad_ep150_stp60_lr0.0015_b64_fb10_softmax_labelsmooth_flip.pth"
+      input_size: [256, 128]
+      feature_dim: 512
+
+  # --- MLFN Models ---
+  - model:
+      model_type: "mlfn"
+      weights_path: "mlfn_market_xent.pth" # Added _xent
+      input_size: [256, 128]
+      feature_dim: 512
+  - model:
+      model_type: "mlfn"
+      weights_path: "mlfn_duke_xent.pth"   # Added _xent
+      input_size: [256, 128]
+      feature_dim: 512
+
+  # --- HACNN Models ---
+  - model:
+      model_type: "hacnn"
+      weights_path: "hacnn_market_xent.pth" # Added _xent
+      input_size: [160, 64]
+      feature_dim: 512
+  - model:
+      model_type: "hacnn"
+      weights_path: "hacnn_duke_xent.pth"   # Added _xent
+      input_size: [160, 64]
+      feature_dim: 512
+
+  # --- MobileNetV2 Models ---
+  - model:
+      model_type: "mobilenetv2_x1_4" # Using your notation
+      weights_path: "mobilenetv2_1dot4_market.pth" # Matched filename (1dot4)
+      input_size: [256, 128]
+      feature_dim: 1792
+  - model:
+      model_type: "mobilenetv2_x1_4"
+      weights_path: "mobilenetv2_1dot4_duke.pth"   # Matched filename (1dot4)
+      input_size: [256, 128]
+      feature_dim: 1792
+
+  # --- ResNet50 Models ---
+  - model:
+      # Type could be 'resnet50' or 'resnet50_fc512' depending on loading logic
+      model_type: "resnet50_fc512"
+      weights_path: "resnet50_fc512_msmt_xent.pth" # Matched filename
+      input_size: [256, 128]
+      feature_dim: 512
+  - model:
+      model_type: "resnet50_fc512"
+      weights_path: "resnet50_fc512_market_xent.pth" # Matched filename
+      input_size: [256, 128]
+      feature_dim: 512

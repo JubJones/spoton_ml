@@ -21,7 +21,7 @@ except ImportError:
     if str(Path(__file__).parent.parent) not in sys.path:
         sys.path.insert(0, str(Path(__file__).parent.parent))
     from data.reid_dataset_loader import ReidDatasetLoader, ReidCropInfo
-    from reid.strategies import ReIDStrategy, get_reid_strategy_from_run_config
+    from src.reid.strategies import ReIDStrategy, get_reid_strategy_from_run_config
     from evaluation.reid_metrics import compute_reid_metrics
 # --- End Local Import Handling ---
 

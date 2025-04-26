@@ -41,7 +41,7 @@ except ImportError:
     )
     # Re-ID Imports
     from data.reid_dataset_loader import ReidDatasetLoader, ReidCropInfo  # Kept for reference, used by pipeline
-    from reid.strategies import ReIDStrategy, get_reid_strategy_from_run_config  # Kept for reference, used by pipeline
+    from src.reid.strategies import ReIDStrategy, get_reid_strategy_from_run_config  # Kept for reference, used by pipeline
     from evaluation.reid_metrics import compute_reid_metrics  # Kept for reference, used by pipeline
     from pipelines.reid_pipeline import ReidPipeline  # Import the new Re-ID pipeline
 # --- End Local Import Handling ---
