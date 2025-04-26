@@ -11,23 +11,17 @@ import numpy as np
 import torch
 from PIL import Image
 from mlflow.models import infer_signature
+from mlflow.tracking import MlflowClient
 
 # --- Local Imports Need Correct Path Handling ---
 try:
     from src.utils.device_utils import get_selected_device
-    from src.reid.strategies import get_reid_device_specifier_string
-    # Detection Imports (kept for run_single_experiment)
+    from src.utils.reid_device_utils import get_reid_device_specifier_string
     from src.data.loader import FrameDataLoader
     from src.pipelines.detection_pipeline import DetectionPipeline
     from src.tracking.strategies import (
         DetectionTrackingStrategy, YoloStrategy, RTDetrStrategy, FasterRCNNStrategy, RfDetrStrategy
     )
-    # Re-ID Imports (kept for run_single_reid_experiment)
-    from src.data.reid_dataset_loader import ReidDatasetLoader, ReidCropInfo
-    from src.reid.strategies import ReIDStrategy, get_reid_strategy_from_run_config
-    from src.evaluation.reid_metrics import compute_reid_metrics
-    from src.pipelines.reid_pipeline import ReidPipeline
-    # Tracking+ReID Imports (New)
     from src.pipelines.tracking_reid_pipeline import TrackingReidPipeline, TrackingResultSummary
 
 except ImportError:
@@ -37,18 +31,13 @@ except ImportError:
         sys.path.insert(0, str(Path(__file__).parent.parent))
     # Re-attempt imports after potentially fixing path
     from utils.device_utils import get_selected_device
-    from reid.strategies import get_reid_device_specifier_string
+    from utils.reid_device_utils import get_reid_device_specifier_string # Renamed util file
     # Detection Imports
     from data.loader import FrameDataLoader
     from pipelines.detection_pipeline import DetectionPipeline
     from tracking.strategies import (
         DetectionTrackingStrategy, YoloStrategy, RTDetrStrategy, FasterRCNNStrategy, RfDetrStrategy
     )
-    # Re-ID Imports
-    from data.reid_dataset_loader import ReidDatasetLoader, ReidCropInfo
-    from src.reid.strategies import ReIDStrategy, get_reid_strategy_from_run_config
-    from evaluation.reid_metrics import compute_reid_metrics
-    from pipelines.reid_pipeline import ReidPipeline
     # Tracking+ReID Imports
     from pipelines.tracking_reid_pipeline import TrackingReidPipeline, TrackingResultSummary
 # --- End Local Import Handling ---
@@ -58,7 +47,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 
 
 # --- Helper Functions (log_params_recursive, log_metrics_dict, log_git_info) ---
-# (These functions remain unchanged from the original)
+# (These functions remain unchanged from the previous version)
 def log_params_recursive(params_dict: Dict[str, Any], parent_key: str = ""):
     """Recursively logs parameters to the *current active* MLflow run."""
     if not mlflow.active_run():
@@ -111,7 +100,10 @@ def log_metrics_dict(metrics: Dict[str, Any], prefix: str = "eval"):
         f"{prefix}_{k.replace('-', '_').replace('.', '_')}": v for k, v in metrics.items()
         if isinstance(v, (int, float, np.number)) and np.isfinite(v)
     }
-    non_numeric_keys = [k for k in metrics if k not in [nk.split('_', 1)[1] for nk in numeric_metrics.keys()]] # Rough check
+    # Identify keys that were not converted to numeric metrics
+    original_keys_numeric = {k.replace('-', '_').replace('.', '_') for k in metrics if isinstance(metrics[k], (int, float, np.number)) and np.isfinite(metrics[k])}
+    non_numeric_keys = [k for k in metrics if k.replace('-', '_').replace('.', '_') not in original_keys_numeric]
+
 
     if non_numeric_keys:
         # Log non-numeric items as params if they are simple types
@@ -119,7 +111,8 @@ def log_metrics_dict(metrics: Dict[str, Any], prefix: str = "eval"):
             value = metrics[key]
             if isinstance(value, (str, bool)):
                  mlflow_key = f"{prefix}_{key.replace('-', '_').replace('.', '_')}"
-                 mlflow.log_param(mlflow_key, str(value)[:500])
+                 # Ensure param value length is within limits (MLflow server default is 500)
+                 mlflow.log_param(mlflow_key, str(value)[:499])
             else:
                  logger.debug(f"Skipping non-numeric/non-simple metric/param: {key} (type: {type(value)})")
 
@@ -150,10 +143,10 @@ def log_git_info():
     if not mlflow.active_run(): return
     try:
         commit = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=PROJECT_ROOT,
-                                         stderr=subprocess.STDOUT).strip().decode('utf-8')
+                                         stderr=subprocess.STDOUT, timeout=5).strip().decode('utf-8')
         mlflow.set_tag("git_commit_hash", commit)
         status = subprocess.check_output(['git', 'status', '--porcelain'], cwd=PROJECT_ROOT,
-                                         stderr=subprocess.STDOUT).strip().decode('utf-8')
+                                         stderr=subprocess.STDOUT, timeout=5).strip().decode('utf-8')
         git_status = "dirty" if status else "clean"
         mlflow.set_tag("git_status", git_status)
         logger.info(f"Logged Git info: Commit={commit[:7]}, Status={git_status}")
@@ -161,15 +154,20 @@ def log_git_info():
             try:
                 # Log diff only if status is dirty
                 diff = subprocess.check_output(['git', 'diff', 'HEAD'], cwd=PROJECT_ROOT,
-                                               stderr=subprocess.STDOUT).strip().decode('utf-8', errors='ignore')
+                                               stderr=subprocess.STDOUT, timeout=10).strip().decode('utf-8', errors='ignore')
                 if diff:
-                    max_diff_len = 100 * 1024 # Limit diff size artifact
+                    max_diff_len = 100 * 1024 # Limit diff size artifact (100 KB)
                     if len(diff) > max_diff_len:
                         diff = diff[:max_diff_len] + "\n... (diff truncated)"
                     mlflow.log_text(diff, artifact_file="code/git_diff.diff")
                     logger.info("Logged git diff as artifact (due to dirty status).")
+            except subprocess.TimeoutExpired:
+                logger.warning("Could not log git diff: 'git diff' command timed out.")
             except Exception as diff_err:
                 logger.warning(f"Could not log git diff: {diff_err}")
+    except subprocess.TimeoutExpired:
+         logger.warning("Could not get git info: 'git' command timed out.")
+         mlflow.set_tag("git_status", "unknown (git timeout)")
     except subprocess.CalledProcessError as git_err:
         logger.warning(f"Could not get git info (git command failed): {git_err}")
         mlflow.set_tag("git_status", "unknown (git error)")
@@ -181,7 +179,7 @@ def log_git_info():
         mlflow.set_tag("git_status", "unknown (error)")
 
 
-# --- Detection Runner (run_single_experiment - Unchanged) ---
+# --- Detection Runner (run_single_experiment - Unchanged from previous) ---
 def run_single_experiment(
         run_config: Dict[str, Any],
         base_device_preference: str,
@@ -281,7 +279,7 @@ def run_single_experiment(
                             sample_input_data.save(ex_path)
                         else: ex_path = None
 
-                        if ex_path:
+                        if ex_path and ex_path.exists():
                              mlflow.log_artifact(str(ex_path.resolve()), artifact_path="examples")
                              ex_path.unlink() # Clean up local file
                     except Exception as ex_log_err: logger.warning(f"Failed to log detection input example artifact: {ex_log_err}")
@@ -303,7 +301,9 @@ def run_single_experiment(
             metrics = calculated_metrics # Store for return
             try:
                 # Log metrics dictionary as JSON artifact
-                metrics_path = Path(f"./run_{run_id}_detection_metrics.json")
+                metrics_dir = Path("./mlflow_results")
+                metrics_dir.mkdir(exist_ok=True)
+                metrics_path = metrics_dir / f"run_{run_id}_detection_metrics.json"
                 with open(metrics_path, 'w') as f:
                     metrics_serializable = {}
                     for k, v in calculated_metrics.items():
@@ -349,133 +349,7 @@ def run_single_experiment(
     return run_status, metrics
 
 
-# --- Re-ID Runner (run_single_reid_experiment - Unchanged) ---
-def run_single_reid_experiment(
-        run_config: Dict[str, Any],
-        base_device_preference: str,
-        seed: int,
-        config_file_path: str,
-        log_file_path: Optional[str] = None
-) -> Tuple[str, Optional[Dict[str, Any]]]:
-    """Executes a single Re-ID MLflow run using the ReidPipeline."""
-    active_run = mlflow.active_run()
-    if not active_run:
-        logger.critical("run_single_reid_experiment called without active MLflow run!")
-        return "FAILED", None
-    run_id = active_run.info.run_id
-    logger.info(f"--- Starting Re-ID Execution Logic for Run ID: {run_id} (Using ReidPipeline) ---")
-
-    run_status = "FAILED"
-    metrics: Optional[Dict[str, Any]] = None
-    pipeline: Optional[ReidPipeline] = None
-    actual_device: Optional[torch.device] = None
-    model_name_tag = "unknown_reid" # Default tag
-
-    try:
-        # --- Device Selection ---
-        resolved_initial_device = get_selected_device(base_device_preference)
-        actual_device = resolved_initial_device # Start with resolved device
-        # Note: ReID models might have different device compatibilities, handled in strategy/pipeline
-        model_config = run_config.get("model", {})
-        model_type = model_config.get("model_type", "unknown_reid")
-        weights_file = Path(model_config.get("weights_path", "")).stem
-        model_name_tag = f"{model_type}_{weights_file}" if weights_file else model_type # Update tag
-        logger.info(f"[{model_name_tag}] Re-ID Device: Requested='{base_device_preference}', Used='{actual_device}'")
-
-        # --- MLflow Logging: Parameters & Tags ---
-        logger.info(f"[{model_name_tag}] Logging Re-ID parameters...")
-        log_params_recursive(run_config)
-        mlflow.log_param("environment.seed", seed)
-        mlflow.log_param("environment.actual_device_used", str(actual_device)) # Log the device used by pipeline
-
-        logger.info(f"[{model_name_tag}] Logging Re-ID tags...")
-        mlflow.set_tag("model_name", model_name_tag)
-        mlflow.set_tag("model_type", model_type)
-        mlflow.set_tag("weights_file", weights_file if weights_file else "Default/None")
-        mlflow.set_tag("feature_dim", model_config.get("feature_dim", "unknown"))
-        mlflow.set_tag("input_size", str(model_config.get("input_size", "unknown")))
-        selected_env = run_config.get('data', {}).get('selected_environment', 'unknown')
-        env_data = run_config.get('data', {}).get(selected_env, {})
-        mlflow.set_tag("dataset_split", run_config.get('data', {}).get('split_type', 'unknown'))
-        mlflow.set_tag("scene_id", env_data.get('scene_id', 'unknown'))
-        mlflow.set_tag("scene_annotation", env_data.get('scene_annotation_file', 'unknown'))
-        if 'camera_ids' in env_data: mlflow.set_tag("camera_ids_loaded", ",".join(sorted(env_data['camera_ids'])))
-        log_git_info()
-
-        # Log Config/Requirements Artifacts
-        if config_file_path and Path(config_file_path).is_file():
-            mlflow.log_artifact(config_file_path, artifact_path="config")
-        req_path = PROJECT_ROOT / "requirements.txt"
-        if req_path.is_file():
-            mlflow.log_artifact(str(req_path), artifact_path="code")
-
-        # --- Pipeline Initialization & Execution ---
-        logger.info(f"[{model_name_tag}] Initializing and running Re-ID pipeline...")
-        # Pass project root for potential weight path resolution inside pipeline/strategy
-        pipeline = ReidPipeline(run_config, actual_device, PROJECT_ROOT)
-        pipeline_success, calculated_metrics, eval_counts = pipeline.run()
-        metrics = calculated_metrics # Store for return
-
-        # --- Log Metrics & Results ---
-        # Log evaluation counts (e.g., num_crops, query/gallery size) as params
-        if eval_counts:
-            logger.info(f"[{model_name_tag}] Logging evaluation counts as params...")
-            for k, v in eval_counts.items():
-                 # Ensure keys are MLflow compatible
-                 mlflow_key = f"eval_counts.{k.replace('-', '_').replace('.', '_')}"
-                 mlflow.log_param(mlflow_key, v)
-
-        if metrics:
-            logger.info(f"[{model_name_tag}] Logging Re-ID metrics...")
-            log_metrics_dict(metrics, prefix="reid") # Use prefix
-            try:  # Log metrics dict as JSON artifact
-                metrics_path = Path(f"./run_{run_id}_reid_metrics.json")
-                with open(metrics_path, 'w') as f:
-                    # Handle potential numpy/torch types during serialization
-                    metrics_serializable = {}
-                    for k, v in metrics.items():
-                         if isinstance(v, (np.generic, np.number)): metrics_serializable[k] = v.item()
-                         elif isinstance(v, torch.Tensor): metrics_serializable[k] = v.item() if v.numel() == 1 else v.cpu().tolist()
-                         elif isinstance(v, (int, float, str, bool)): metrics_serializable[k] = v
-                         else: metrics_serializable[k] = str(v)
-                    json.dump(metrics_serializable, f, indent=4)
-                mlflow.log_artifact(str(metrics_path), artifact_path="results")
-                metrics_path.unlink() # Clean up local file
-            except Exception as json_err:
-                logger.warning(f"Could not log Re-ID metrics dictionary as JSON artifact: {json_err}")
-        else:
-            logger.warning(f"[{model_name_tag}] No Re-ID metrics were calculated by the pipeline.")
-
-        # --- Final Status ---
-        if pipeline_success:
-            run_status = "FINISHED"
-            mlflow.set_tag("run_outcome", "Success" if metrics else "Success (No Metrics)")
-        else:
-            run_status = "FAILED"
-            mlflow.set_tag("run_outcome", "Failed (Partial Metrics)" if metrics else "Failed Execution")
-
-    except KeyboardInterrupt:
-        logger.warning(f"[{model_name_tag}] Re-ID run interrupted by user (KeyboardInterrupt).")
-        run_status = "KILLED"
-        mlflow.set_tag("run_outcome", "Killed by user")
-        raise  # Re-raise to allow outer handler to catch it
-    except Exception as e:
-        logger.critical(f"[{model_name_tag}] An uncaught error occurred during the Re-ID run: {e}", exc_info=True)
-        run_status = "FAILED"
-        mlflow.set_tag("run_outcome", "Crashed")
-        try: # Log error details to MLflow artifact
-            mlflow.log_text(
-                f"Error Type: {type(e).__name__}\nError Message: {e}\n\nTraceback:\n{traceback.format_exc()}",
-                "error_log.txt"
-            )
-        except Exception as log_err: logger.error(f"Failed to log Re-ID error details to MLflow: {log_err}")
-    finally:
-        logger.info(f"--- Finished Re-ID Execution Logic for Run ID: {run_id} [{model_name_tag}] (Attempted Status: {run_status}) ---")
-
-    return run_status, metrics
-
-
-# --- Tracking + Re-ID Runner (New Function) ---
+# --- Tracking + Re-ID Runner (Unchanged from previous) ---
 def run_single_tracking_reid_experiment(
         run_config: Dict[str, Any],
         base_device_preference: str,
@@ -549,14 +423,21 @@ def run_single_tracking_reid_experiment(
 
         # Log the actual device used by the tracker if reported
         if tracker_device:
-             mlflow.log_param("environment.actual_tracker_device", str(tracker_device))
+             # Convert potential string device ('0', 'mps') back to torch.device for consistent logging
+             if isinstance(tracker_device, str):
+                  try: tracker_device_log = torch.device(f"cuda:{tracker_device}") if tracker_device.isdigit() else torch.device(tracker_device)
+                  except Exception: tracker_device_log = tracker_device # Keep as string if conversion fails
+             else: tracker_device_log = tracker_device
+             mlflow.log_param("environment.actual_tracker_device", str(tracker_device_log))
 
         # --- Log Metrics & Results ---
         if summary_metrics:
             logger.info(f"[{run_name_tag}] Logging tracking summary metrics...")
             log_metrics_dict(summary_metrics, prefix="tracking") # Use prefix
             try:  # Log summary dict as JSON artifact
-                summary_path = Path(f"./run_{run_id}_tracking_summary.json")
+                results_dir = Path("./mlflow_results")
+                results_dir.mkdir(exist_ok=True)
+                summary_path = results_dir / f"run_{run_id}_tracking_summary.json"
                 with open(summary_path, 'w') as f:
                      # Ensure types are JSON serializable
                      serializable_summary = {k: (v.item() if isinstance(v, (np.generic, np.number)) else v) for k, v in summary_metrics.items()}
@@ -599,7 +480,7 @@ def run_single_tracking_reid_experiment(
     return run_status, summary_metrics
 
 
-# --- Sample Data Generation (Detection - Unchanged but potentially needed helper) ---
+# --- Sample Data Generation (Detection - Unchanged from previous) ---
 def get_sample_data_for_signature(
         config: Dict[str, Any], strategy: DetectionTrackingStrategy, device: torch.device
 ) -> Tuple[Optional[Any], Optional[Any]]:

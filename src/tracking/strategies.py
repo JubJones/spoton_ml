@@ -1,4 +1,3 @@
-# FILE: src/tracking/strategies.py
 import abc
 import logging
 from typing import List, Tuple, Dict, Any, Optional
