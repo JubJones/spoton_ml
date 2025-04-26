@@ -1,3 +1,4 @@
+# FILE: src/core/runner.py
 import json
 import logging
 import subprocess
@@ -22,7 +23,9 @@ try:
     from src.tracking.strategies import (
         DetectionTrackingStrategy, YoloStrategy, RTDetrStrategy, FasterRCNNStrategy, RfDetrStrategy
     )
+    # --- Modified Import for TrackingResultSummary ---
     from src.pipelines.tracking_reid_pipeline import TrackingReidPipeline, TrackingResultSummary
+    # --- End Modified Import ---
 
 except ImportError:
     import sys
@@ -39,7 +42,9 @@ except ImportError:
         DetectionTrackingStrategy, YoloStrategy, RTDetrStrategy, FasterRCNNStrategy, RfDetrStrategy
     )
     # Tracking+ReID Imports
+    # --- Modified Import for TrackingResultSummary ---
     from pipelines.tracking_reid_pipeline import TrackingReidPipeline, TrackingResultSummary
+    # --- End Modified Import ---
 # --- End Local Import Handling ---
 
 logger = logging.getLogger(__name__)
@@ -47,7 +52,7 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.resolve()
 
 
 # --- Helper Functions (log_params_recursive, log_metrics_dict, log_git_info) ---
-# (These functions remain unchanged from the previous version)
+# (These functions remain unchanged)
 def log_params_recursive(params_dict: Dict[str, Any], parent_key: str = ""):
     """Recursively logs parameters to the *current active* MLflow run."""
     if not mlflow.active_run():
@@ -179,7 +184,7 @@ def log_git_info():
         mlflow.set_tag("git_status", "unknown (error)")
 
 
-# --- Detection Runner (run_single_experiment - Unchanged from previous) ---
+# --- Detection Runner (run_single_experiment - Unchanged) ---
 def run_single_experiment(
         run_config: Dict[str, Any],
         base_device_preference: str,
@@ -349,7 +354,7 @@ def run_single_experiment(
     return run_status, metrics
 
 
-# --- Tracking + Re-ID Runner (Unchanged from previous) ---
+# --- Tracking + Re-ID Runner ---
 def run_single_tracking_reid_experiment(
         run_config: Dict[str, Any],
         base_device_preference: str,
@@ -368,7 +373,7 @@ def run_single_tracking_reid_experiment(
     run_status = "FAILED"
     summary_metrics: Optional[TrackingResultSummary] = None
     pipeline: Optional[TrackingReidPipeline] = None
-    actual_device: Optional[torch.device] = None
+    actual_device: Optional[torch.device] = None # Preferred device
 
     # Determine tags early for logging context
     tracker_config = run_config.get("tracker", {})
@@ -381,8 +386,6 @@ def run_single_tracking_reid_experiment(
 
     try:
         # --- Device Selection ---
-        # BoxMOT trackers handle device internally based on specifier string ('0', 'mps', 'cpu')
-        # We resolve the preference here and pass the appropriate string/device object later
         resolved_initial_device = get_selected_device(base_device_preference)
         actual_device = resolved_initial_device # Pipeline might override based on tracker needs
         logger.info(f"[{run_name_tag}] Device Preference: Requested='{base_device_preference}', Resolved='{actual_device}'")
@@ -390,7 +393,6 @@ def run_single_tracking_reid_experiment(
 
         # --- MLflow Logging: Parameters & Tags ---
         logger.info(f"[{run_name_tag}] Logging Tracking+ReID parameters...")
-        # Log relevant parts of the config
         log_params_recursive({"tracker": tracker_config, "reid_model": reid_config, "data": run_config.get("data", {}), "environment": {"seed": seed, "device_pref": base_device_preference}})
         mlflow.log_param("environment.seed", seed)
         mlflow.log_param("environment.requested_device", base_device_preference)
@@ -417,23 +419,35 @@ def run_single_tracking_reid_experiment(
 
         # --- Pipeline Initialization & Execution ---
         logger.info(f"[{run_name_tag}] Initializing and running Tracking+ReID pipeline...")
+        # Pass the resolved device preference to the pipeline
         pipeline = TrackingReidPipeline(run_config, actual_device, PROJECT_ROOT)
-        pipeline_success, pipeline_summary, tracker_device = pipeline.run()
+
+        # --- *** MODIFICATION: Expect only 2 return values *** ---
+        pipeline_success, pipeline_summary = pipeline.run()
+        # --- *** END MODIFICATION *** ---
+
         summary_metrics = pipeline_summary # Store for return
 
-        # Log the actual device used by the tracker if reported
-        if tracker_device:
-             # Convert potential string device ('0', 'mps') back to torch.device for consistent logging
-             if isinstance(tracker_device, str):
-                  try: tracker_device_log = torch.device(f"cuda:{tracker_device}") if tracker_device.isdigit() else torch.device(tracker_device)
-                  except Exception: tracker_device_log = tracker_device # Keep as string if conversion fails
-             else: tracker_device_log = tracker_device
-             mlflow.log_param("environment.actual_tracker_device", str(tracker_device_log))
+        # Log the actual device used by the tracker(s) if reported
+        if hasattr(pipeline, 'actual_tracker_devices') and pipeline.actual_tracker_devices:
+             # Log devices per camera
+             for cam_id, tracker_device in pipeline.actual_tracker_devices.items():
+                 # Convert potential string device ('0', 'mps') back to torch.device for consistent logging
+                 if isinstance(tracker_device, str):
+                      try: tracker_device_log = torch.device(f"cuda:{tracker_device}") if tracker_device.isdigit() else torch.device(tracker_device)
+                      except Exception: tracker_device_log = tracker_device # Keep as string if conversion fails
+                 else: tracker_device_log = tracker_device
+                 mlflow.log_param(f"environment.actual_tracker_device_{cam_id}", str(tracker_device_log))
+             # Log a summary if all devices are the same
+             unique_devices = set(str(d) for d in pipeline.actual_tracker_devices.values())
+             if len(unique_devices) == 1:
+                 mlflow.log_param("environment.actual_tracker_device_all", unique_devices.pop())
 
         # --- Log Metrics & Results ---
         if summary_metrics:
-            logger.info(f"[{run_name_tag}] Logging tracking summary metrics...")
-            log_metrics_dict(summary_metrics, prefix="tracking") # Use prefix
+            logger.info(f"[{run_name_tag}] Logging tracking summary & MOT metrics...")
+            # Use prefix="mot" or "tracking" - let's use "tracking" to group all
+            log_metrics_dict(summary_metrics, prefix="tracking") # Log all calculated metrics
             try:  # Log summary dict as JSON artifact
                 results_dir = Path("./mlflow_results")
                 results_dir.mkdir(exist_ok=True)
@@ -443,6 +457,13 @@ def run_single_tracking_reid_experiment(
                      serializable_summary = {k: (v.item() if isinstance(v, (np.generic, np.number)) else v) for k, v in summary_metrics.items()}
                      for k, v in serializable_summary.items(): # Handle torch tensors if any sneak in
                          if isinstance(v, torch.Tensor): serializable_summary[k] = v.item() if v.numel() == 1 else v.cpu().tolist()
+                     # Format floats nicely
+                     for k, v in serializable_summary.items():
+                         if isinstance(v, float): serializable_summary[k] = f"{v:.4f}"
+                         elif isinstance(v, dict): # Handle nested dicts like HOTA breakdown
+                              for nk, nv in v.items():
+                                   if isinstance(nv, float): serializable_summary[k][nk] = f"{nv:.4f}"
+
                      json.dump(serializable_summary, f, indent=4)
                 mlflow.log_artifact(str(summary_path), artifact_path="results")
                 summary_path.unlink() # Clean up local file
@@ -465,6 +486,7 @@ def run_single_tracking_reid_experiment(
         mlflow.set_tag("run_outcome", "Killed by user")
         raise  # Re-raise to allow outer handler to catch it
     except Exception as e:
+        # This catches errors during pipeline init or run if they weren't handled internally
         logger.critical(f"[{run_name_tag}] An uncaught error occurred during the Tracking+ReID run: {e}", exc_info=True)
         run_status = "FAILED"
         mlflow.set_tag("run_outcome", "Crashed")
@@ -480,7 +502,7 @@ def run_single_tracking_reid_experiment(
     return run_status, summary_metrics
 
 
-# --- Sample Data Generation (Detection - Unchanged from previous) ---
+# --- Sample Data Generation (Detection - Unchanged) ---
 def get_sample_data_for_signature(
         config: Dict[str, Any], strategy: DetectionTrackingStrategy, device: torch.device
 ) -> Tuple[Optional[Any], Optional[Any]]:

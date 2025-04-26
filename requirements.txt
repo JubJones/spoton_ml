@@ -17,5 +17,7 @@ boxmot
 
 # Utilities
 numpy
+pandas
 pillow
 scipy
+motmetrics
