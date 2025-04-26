@@ -20,7 +20,6 @@ try:
     from boxmot.trackers.basetracker import BaseTracker
 
     BOXMOT_AVAILABLE = True
-    # Map tracker type strings (lowercase, from config) to the imported BoxMOT classes
     TRACKER_CLASSES: Dict[str, Type[BaseTracker]] = {
         'strongsort': StrongSort,
         'botsort': BotSort,
@@ -316,19 +315,38 @@ class TrackingReidPipeline:
                 frame_end_time = time.perf_counter()
                 frame_processing_times.append((frame_end_time - frame_start_time) * 1000) # Store time in ms
 
+                # --- Determine expected output shape ---
+                # FIX: Safely determine the number of columns, defaulting if tracker_output is not a 2D array
+                default_cols = 7 # Default guess (e.g., xyxy, id, conf, cls)
+                output_shape_cols = default_cols # Start with default
+                if tracker_output is not None and isinstance(tracker_output, np.ndarray) and tracker_output.ndim == 2:
+                    # Only access shape[1] if it's a non-None, 2D numpy array
+                    if tracker_output.shape[1] > 0: # Check if columns exist
+                        output_shape_cols = tracker_output.shape[1]
+                    # else: keep default_cols if shape is like (N, 0) which is unlikely but possible
+                # If tracker_output is None, not ndarray, 0D, or 1D, output_shape_cols remains default_cols
+                # END FIX
+
                 # --- Store Tracker Output ---
                 # Output format is typically [[x1, y1, x2, y2, track_id, conf, cls, Optional[det_ind]], ...]
                 # Shape can vary slightly between trackers (e.g., presence of det_ind)
-                output_shape_cols = tracker_output.shape[1] if tracker_output is not None else 7 # Default guess if None
 
-                if tracker_output is not None and tracker_output.size > 0:
-                    self.raw_tracker_outputs[(frame_idx, cam_id)] = tracker_output
-                    total_tracks_output += len(tracker_output)
-                    pbar.set_postfix({"GT": num_gt_boxes_frame, "Tracks": len(tracker_output)})
+                if tracker_output is not None and isinstance(tracker_output, np.ndarray) and tracker_output.size > 0:
+                    # Ensure it has the expected number of columns before storing
+                    if tracker_output.ndim == 2 and tracker_output.shape[1] == output_shape_cols:
+                        self.raw_tracker_outputs[(frame_idx, cam_id)] = tracker_output
+                        total_tracks_output += len(tracker_output)
+                        pbar.set_postfix({"GT": num_gt_boxes_frame, "Tracks": len(tracker_output)})
+                    else:
+                        logger.warning(f"[{run_name_tag}] Frame {frame_idx}, Cam {cam_id}: Tracker output has unexpected shape {tracker_output.shape}. Expected ndim=2, cols={output_shape_cols}. Storing empty.")
+                        # Store empty array with the determined/default shape
+                        self.raw_tracker_outputs[(frame_idx, cam_id)] = np.empty((0, output_shape_cols))
+                        pbar.set_postfix({"GT": num_gt_boxes_frame, "Tracks": 0})
                 else:
-                    # Store empty array if tracker returns None or empty, maintain consistent shape if possible
+                    # Store empty array if tracker returns None or empty, using the determined/default shape
                     self.raw_tracker_outputs[(frame_idx, cam_id)] = np.empty((0, output_shape_cols))
                     pbar.set_postfix({"GT": num_gt_boxes_frame, "Tracks": 0})
+
 
             # --- Finalize ---
             pbar.close()
@@ -360,7 +378,6 @@ class TrackingReidPipeline:
             self.summary_metrics['perf_total_frames_processed'] = frames_processed_count
             self.summary_metrics['perf_unique_frame_indices_processed'] = len(processed_indices)
             self.summary_metrics['perf_total_processing_time_sec'] = round(end_time_total - start_time_total, 2)
-            # ... potentially other partial stats ...
             return False
 
     def calculate_metrics(self) -> bool:
@@ -422,20 +439,24 @@ class TrackingReidPipeline:
             # Ensure some summary dict exists, even if empty, on critical failure
             if not self.summary_metrics: self.summary_metrics = {}
 
+        # Attempt to dump cache if applicable (e.g., for CMC in StrongSORT)
+        self.dump_cache()
+
         logger.info(f"[{run_name_tag}] Tracking+ReID Pipeline Run completed. Success: {success}")
         return success, self.summary_metrics, self.actual_tracker_device
 
     def dump_cache(self):
-        """Saves CMC cache if applicable."""
-        if hasattr(self.tracker_instance, 'cmc') and hasattr(self.tracker_instance.cmc, 'save_cache'):
+        """Saves CMC cache if applicable (e.g., for StrongSORT)."""
+        run_name_tag = f"Trk:{self.tracker_type}_ReID:{self.reid_model_type}"
+        if self.tracker_instance and hasattr(self.tracker_instance, 'cmc') and hasattr(self.tracker_instance.cmc, 'save_cache'):
              try:
                  self.tracker_instance.cmc.save_cache()
-                 logger.info(f"[{self.tracker_type}] Saved CMC cache.")
+                 logger.info(f"[{run_name_tag}] Saved CMC cache.")
              except Exception as e:
-                 logger.warning(f"[{self.tracker_type}] Failed to save CMC cache: {e}")
-        elif hasattr(self, 'cmc') and hasattr(self.cmc, 'save_cache'): # Fallback if CMC is direct attribute
+                 logger.warning(f"[{run_name_tag}] Failed to save CMC cache: {e}")
+        elif self.tracker_instance and hasattr(self.tracker_instance, 'save_cache'): # Some trackers might have it directly
              try:
-                 self.cmc.save_cache()
-                 logger.info(f"[{self.tracker_type}] Saved CMC cache (pipeline level).")
+                 self.tracker_instance.save_cache()
+                 logger.info(f"[{run_name_tag}] Saved tracker cache (direct call).")
              except Exception as e:
-                 logger.warning(f"[{self.tracker_type}] Failed to save CMC cache (pipeline level): {e}")
+                 logger.warning(f"[{run_name_tag}] Failed to save tracker cache (direct call): {e}")
