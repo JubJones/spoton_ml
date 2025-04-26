@@ -21,12 +21,12 @@ data:
   campus:
     scene_id: "s47"
     camera_ids: [ "c01", "c02", "c03", "c05" ]
-    max_frames_per_camera: 100 # Or -1
+    max_frames_per_camera: -1 # Or -1
 
   factory:
     scene_id: "s10"
     camera_ids: [ "c09", "c12", "c13", "c16" ]
-    max_frames_per_camera: 100 # Or -1
+    max_frames_per_camera: -1 # Or -1
 
 # --- Trackers to Run ---
 trackers_to_run:
@@ -45,10 +45,11 @@ reid_models_to_associate:
     weights_path: "clip_market1501.pt"
 
   # --- LMBN Models ---
-  - model_type: "lmbn_n"
-    weights_path: "lmbn_n_market.pt"
+  # Note: Only lmbn_n_duke.pt was present in reid_resaved
   - model_type: "lmbn_n"
     weights_path: "lmbn_n_duke.pt"
+  # - model_type: "lmbn_n"             # Removed lmbn_n_market.pt
+  #   weights_path: "lmbn_n_market.pt"
 
   # --- OSNet Models ---
   - model_type: "osnet_ibn_x1_0"
@@ -58,17 +59,17 @@ reid_models_to_associate:
   - model_type: "osnet_x1_0"
     weights_path: "osnet_x1_0_msmt17.pt"
 
-  # --- MLFN Models ---
-  - model_type: "mlfn"
-    weights_path: "mlfn_market1501.pt"
-  - model_type: "mlfn"
-    weights_path: "mlfn_dukemtmcreid.pt"
+  # --- MLFN Models ---                # Removed MLFN section
+  # - model_type: "mlfn"
+  #   weights_path: "mlfn_market1501.pt"
+  # - model_type: "mlfn"
+  #   weights_path: "mlfn_dukemtmcreid.pt"
 
-  # --- HACNN Models ---
-  - model_type: "hacnn"
-    weights_path: "hacnn_market1501.pt"
-  - model_type: "hacnn"
-    weights_path: "hacnn_dukemtmcreid.pt"
+  # --- HACNN Models ---               # Removed HACNN section
+  # - model_type: "hacnn"
+  #   weights_path: "hacnn_market1501.pt"
+  # - model_type: "hacnn"
+  #   weights_path: "hacnn_dukemtmcreid.pt"
 
   # --- MobileNetV2 Models ---
   - model_type: "mobilenetv2_x1_4"
@@ -76,11 +77,11 @@ reid_models_to_associate:
   - model_type: "mobilenetv2_x1_4"
     weights_path: "mobilenetv2_x1_4_dukemtmcreid.pt"
 
-  # --- ResNet50 Models ---
-  - model_type: "resnet50"
-    weights_path: "resnet50_fc512_msmt17.pt"
-  - model_type: "resnet50"
-    weights_path: "resnet50_fc512_market1501.pt"
+  # --- ResNet50 Models ---            # Removed ResNet50 section
+  # - model_type: "resnet50"
+  #   weights_path: "resnet50_fc512_msmt17.pt"
+  # - model_type: "resnet50"
+  #   weights_path: "resnet50_fc512_market1501.pt"
 
 evaluation:
   person_class_id: 0
