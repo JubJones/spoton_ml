@@ -1,0 +1,72 @@
+parent_run_name: "mtmmc_s10_s47_detection_training_comparison" # Example name
+
+mlflow:
+  experiment_name: "MTMMC Detection Training Comparison"
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+
+data:
+  # base_path: "/Volumes/HDD/MTMMC"
+  base_path: "D:/MTMMC" # Adjust to your dataset location
+  # Define scenes and cameras to USE for this entire comparison run
+  # The dataset loader will combine data from these sources.
+  scenes_to_include:
+    - scene_id: "s10" # Factory
+      camera_ids: ["c09", "c12", "c13", "c16"] # Use all cameras from the scene
+    - scene_id: "s47" # Campus
+      camera_ids: ["c01", "c02", "c03", "c05"] # Use all cameras from the scene
+
+  # Data subsetting for faster runs/debugging
+  use_data_subset: true # Set to false to use all data
+  data_subset_fraction: 0.1 # Use 10% of the data if use_data_subset is true
+
+  # Train/Val split
+  val_split_ratio: 0.2 # Proportion of (sub)set to use for validation
+  num_workers: 2 # Number of workers for DataLoader
+
+# --- Models to Train (Child Runs) ---
+models_to_train:
+  # --- Faster R-CNN Configuration ---
+  - model:
+      type: "fasterrcnn" # Must match registry key in runner.py
+      name_tag: "FasterRCNN_Default" # For run naming
+      backbone_weights: "FasterRCNN_ResNet50_FPN_Weights.DEFAULT"
+      num_classes: 2 # person + background
+      trainable_backbone_layers: 3
+      # Preprocessing controlled by transforms in dataset/engine
+
+    training: # Parameters for pytorch_engine
+      engine: "pytorch" # Specify the engine to use
+      epochs: 5 # Short epoch for testing
+      batch_size: 2 # SMALL batch size for testing
+      learning_rate: 0.001
+      optimizer: "AdamW" # Options: "AdamW", "SGD"
+      weight_decay: 0.005
+      # LR Scheduler settings (StepLR)
+      lr_scheduler_step_size: 3
+      lr_scheduler_gamma: 0.1
+      # Checkpointing
+      checkpoint_dir: "checkpoints" # Relative to project root
+      save_best_metric: "val_map_50" # Save based on mAP@0.50 (higher is better)
+
+  # --- RT-DETR Configuration ---
+  - model:
+      type: "rtdetr" # Must match registry key in runner.py
+      name_tag: "RTDETR_L" # For run naming
+      weights_path: "rtdetr-l.pt" # Pretrained weights file/identifier for Ultralytics
+      num_classes: 1 # Ultralytics usually infers from data.yaml, but good practice for clarity
+      # Preprocessing controlled by Ultralytics engine
+
+    training: # Parameters for ultralytics_engine
+      engine: "ultralytics" # Specify the engine to use
+      epochs: 5 # Short epoch for testing
+      batch_size: 2 # SMALL batch size for testing
+      imgsz: 640
+      # Ultralytics uses its own optimizer/scheduler defaults, can override here if needed:
+      # optimizer: 'AdamW'
+      # lr0: 0.001
+      # Other ultralytics args: patience, device (will use env default), project, name...
+      ultralytics_project_name: "ultralytics_runs" # Subdir for Ultralytics outputs
+      # Note: data path (data.yaml) will be generated dynamically by the engine

@@ -11,6 +11,7 @@ opencv-python
 #torchvision
 #torchaudio
 torchmetrics
+torchmetrics[detection]
 ultralytics
 rfdetr
 boxmot
