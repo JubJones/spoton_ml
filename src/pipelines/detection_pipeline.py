@@ -8,7 +8,7 @@ import torch
 from src.data.loader import FrameDataLoader
 from src.evaluation.metrics import load_ground_truth, calculate_metrics_with_map, GroundTruthData, xywh_to_xyxy, \
     gt_tuples_to_xyxy
-from src.tracking.strategies import get_strategy, DetectionTrackingStrategy
+from src.detection.strategies import get_strategy, DetectionTrackingStrategy
 
 logger = logging.getLogger(__name__)
 
