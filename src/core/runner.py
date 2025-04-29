@@ -1,10 +1,9 @@
-# FILE: src/core/runner.py
 import json
 import logging
 import subprocess
 import traceback
 from pathlib import Path
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple
 
 import cv2
 import mlflow
@@ -12,7 +11,6 @@ import numpy as np
 import torch
 from PIL import Image
 from mlflow.models import infer_signature
-from mlflow.tracking import MlflowClient
 
 # --- Local Imports Need Correct Path Handling ---
 try:
@@ -20,12 +18,10 @@ try:
     from src.utils.reid_device_utils import get_reid_device_specifier_string
     from src.data.loader import FrameDataLoader
     from src.pipelines.detection_pipeline import DetectionPipeline
-    from src.tracking.strategies import (
+    from src.detection.strategies import (
         DetectionTrackingStrategy, YoloStrategy, RTDetrStrategy, FasterRCNNStrategy, RfDetrStrategy
     )
-    # --- Modified Import for TrackingResultSummary ---
     from src.pipelines.tracking_reid_pipeline import TrackingReidPipeline, TrackingResultSummary
-    # --- End Modified Import ---
 
 except ImportError:
     import sys
@@ -490,9 +486,9 @@ def run_single_tracking_reid_experiment(
 
         # --- Log Metrics & Results ---
         if summary_metrics:
-            logger.info(f"[{run_name_tag}] Logging tracking summary & MOT metrics...")
-            # Use prefix="tracking" to group all related metrics
-            log_metrics_dict(summary_metrics, prefix="tracking") # Log all calculated metrics
+            logger.info(f"[{run_name_tag}] Logging detection summary & MOT metrics...")
+            # Use prefix="detection" to group all related metrics
+            log_metrics_dict(summary_metrics, prefix="detection") # Log all calculated metrics
             try:  # Log summary dict as JSON artifact
                 results_dir = Path("./mlflow_results")
                 results_dir.mkdir(exist_ok=True)
@@ -528,9 +524,9 @@ def run_single_tracking_reid_experiment(
                 mlflow.log_artifact(str(summary_path), artifact_path="results")
                 summary_path.unlink() # Clean up local file
             except Exception as json_err:
-                logger.warning(f"Could not log tracking summary dictionary as JSON artifact: {json_err}")
+                logger.warning(f"Could not log detection summary dictionary as JSON artifact: {json_err}")
         else:
-            logger.warning(f"[{run_name_tag}] No tracking summary metrics were calculated by the pipeline.")
+            logger.warning(f"[{run_name_tag}] No detection summary metrics were calculated by the pipeline.")
 
         # --- Final Status ---
         if pipeline_success:
