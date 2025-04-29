@@ -13,10 +13,14 @@ from tqdm import tqdm
 try:
     import pandas as pd
     import motmetrics as mm
+    # *** MODIFICATION: Define only the metrics needed for IDF1 ***
+    # Requesting 'idf1' should automatically compute 'idp' and 'idr' as dependencies.
+    REQUESTED_MOT_METRICS = ['idf1', 'idp', 'idr', 'num_matches', 'num_false_positives', 'num_misses']
     MOTMETRICS_AVAILABLE = True
 except ImportError:
     pd = None
     mm = None
+    REQUESTED_MOT_METRICS = []
     MOTMETRICS_AVAILABLE = False
     logging.warning("`motmetrics` or `pandas` not found. Install them (`pip install motmetrics pandas`) to calculate standard MOT metrics.")
 # --- End Optional Import ---
@@ -45,8 +49,8 @@ try:
 except ImportError as e:
     logging.critical(f"Failed to import BoxMOT components. Tracking functionality unavailable. Error: {e}")
     BOXMOT_AVAILABLE = False
-    StrongSort, BotSort, DeepOcSort, OcSort, ByteTrack, BoostTrack, ImprAssocTrack, BaseTracker = (
-        None, None, None, None, None, None, None, None
+    StrongSort, BotSort, DeepOcSort, OcSort, BoostTrack, ImprAssocTrack, BaseTracker = (
+        None, None, None, None, None, None, None
     )
     TRACKER_CLASSES = {}
 
@@ -82,8 +86,7 @@ TrackingResultSummary = Dict[str, Any]
 class TrackingReidPipeline:
     """
     Encapsulates the logic for running a BoxMOT tracker with a specified Re-ID model,
-    using ground truth bounding boxes as input. Manages separate tracker instances per camera
-    and calculates standard MOT metrics.
+    using ground truth bounding boxes as input. Calculates IDF1 tracking metric.
     """
 
     def __init__(self, config: Dict[str, Any], device: torch.device, project_root: Path):
@@ -169,14 +172,18 @@ class TrackingReidPipeline:
 
                 # -- Device --
                 reid_device_specifier = get_reid_device_specifier_string(self.preferred_device)
-                if 'device' in TrackerClass.__init__.__code__.co_varnames:
+                # Check __init__ signature for device argument
+                init_signature = getattr(TrackerClass.__init__, '__code__', None)
+                allowed_args = init_signature.co_varnames if init_signature else []
+
+                if 'device' in allowed_args:
                      tracker_args['device'] = reid_device_specifier
                 else: logger.warning(f"[{run_name_tag}][{cam_id}] Tracker {TrackerClass.__name__} might not accept 'device' arg.")
                 logger.info(f"[{run_name_tag}][{cam_id}] Requesting tracker device: '{reid_device_specifier}'")
 
+
                 # -- Re-ID Model --
                 if self.tracker_type in ['strongsort', 'botsort', 'deepocsort', 'boosttrack', 'imprassoc']:
-                    # (Re-ID weight logic remains the same)
                     reid_weights_identifier: Optional[Path] = None
                     if self.reid_weights_path_rel:
                         weights_base_dir_str = self.data_config.get("weights_base_dir", "weights/reid")
@@ -186,30 +193,30 @@ class TrackingReidPipeline:
                             reid_weights_identifier = potential_path.resolve()
                             logger.info(f"[{run_name_tag}][{cam_id}] Using local ReID weights: {reid_weights_identifier}")
                         else:
-                            logger.warning(f"[{run_name_tag}][{cam_id}] Local ReID weights not found at {potential_path}. Using identifier '{self.reid_model_type}'. BoxMOT might download.")
-                            reid_weights_identifier = Path(self.reid_model_type)
+                            logger.warning(f"[{run_name_tag}][{cam_id}] Local ReID weights not found at {potential_path}. Using identifier '{self.reid_weights_path_rel}'. BoxMOT might download.")
+                            reid_weights_identifier = Path(self.reid_weights_path_rel) # Treat as identifier if not found
                     else:
+                        # Use model type as identifier if path is not given
                         reid_weights_identifier = Path(self.reid_model_type)
                         logger.info(f"[{run_name_tag}][{cam_id}] No ReID path. Using identifier: '{reid_weights_identifier}'. BoxMOT might download.")
 
                     reid_param_name = None
-                    if 'reid_weights' in TrackerClass.__init__.__code__.co_varnames: reid_param_name = 'reid_weights'
-                    elif 'model_weights' in TrackerClass.__init__.__code__.co_varnames: reid_param_name = 'model_weights'
+                    if 'reid_weights' in allowed_args: reid_param_name = 'reid_weights'
+                    elif 'model_weights' in allowed_args: reid_param_name = 'model_weights'
 
                     if reid_param_name and reid_weights_identifier:
                         tracker_args[reid_param_name] = reid_weights_identifier
-                        if 'half' in TrackerClass.__init__.__code__.co_varnames:
+                        if 'half' in allowed_args:
                             use_half = self.preferred_device.type == 'cuda'
                             tracker_args['half'] = use_half
                             logger.info(f"[{run_name_tag}][{cam_id}] Setting 'half' precision: {use_half}")
-                        if 'per_class' in TrackerClass.__init__.__code__.co_varnames:
+                        if 'per_class' in allowed_args:
                             tracker_args['per_class'] = self.config.get('tracker', {}).get('per_class', False)
                     elif not reid_param_name: logger.warning(f"[{run_name_tag}][{cam_id}] Could not determine ReID weights param name for {TrackerClass.__name__}.")
                     else: logger.warning(f"[{run_name_tag}][{cam_id}] ReID specified but no valid path/ID found. Tracker might use default.")
                 else: logger.info(f"[{run_name_tag}][{cam_id}] Tracker type '{self.tracker_type}' typically doesn't use ReID model in constructor.")
 
                 # -- Other Potential Args --
-                allowed_args = TrackerClass.__init__.__code__.co_varnames
                 for arg_name, arg_val in self.tracker_config.items():
                     if arg_name != 'type' and arg_name in allowed_args and arg_name not in tracker_args:
                         tracker_args[arg_name] = arg_val
@@ -240,10 +247,7 @@ class TrackingReidPipeline:
             raise e # Re-raise for the caller
 
     def process_frames(self) -> bool:
-        """Processes frames sequentially, feeding GT boxes to the appropriate camera's tracker."""
-        # (Frame processing loop remains largely the same as the previous version
-        # - it correctly gets tracker_instance per cam_id and handles errors during update)
-        # --- No changes needed in this method from the previous version ---
+        """Processes frames sequentially, feeding GT boxes (clipped to image bounds) to the appropriate camera's tracker."""
         if not self.initialized or not self.data_loader or not self.tracker_instances or self.ground_truth_data is None:
             logger.error("Cannot process frames: Pipeline components not initialized, trackers missing, or GT missing.")
             return False
@@ -253,7 +257,7 @@ class TrackingReidPipeline:
 
         self.raw_tracker_outputs = {}
         frame_processing_times = []
-        total_gt_boxes_processed = 0
+        total_gt_boxes_processed = 0 # Count of *valid* GT boxes fed
         total_tracks_output = 0
         processed_indices: Set[int] = set() # Track unique frame indices processed
 
@@ -280,60 +284,103 @@ class TrackingReidPipeline:
 
                 processed_indices.add(frame_idx)
                 frame_start_time = time.perf_counter()
+                h_img, w_img, _ = frame_bgr.shape # Get image dimensions for clipping
 
-                # --- Get Ground Truth ---
+                # --- Get Ground Truth and PREPARE/VALIDATE Detections for Tracker ---
                 gt_for_frame_tuples = self.ground_truth_data.get((frame_idx, cam_id), [])
-                if not gt_for_frame_tuples:
-                     detections_for_tracker = np.empty((0, 6))
-                     num_gt_boxes_frame = 0
-                else:
-                    num_gt_boxes_frame = len(gt_for_frame_tuples)
-                    total_gt_boxes_processed += num_gt_boxes_frame
-                    boxes_xyxy = []
-                    for _, cx, cy, w, h in gt_for_frame_tuples:
-                        x1, y1, x2, y2 = cx - w / 2, cy - h / 2, cx + w / 2, cy + h / 2
-                        if w > 0 and h > 0: boxes_xyxy.append([x1, y1, x2, y2])
+                valid_boxes_xyxy = []
+                num_gt_boxes_frame = 0 # Count of valid GT boxes for this frame
 
-                    if not boxes_xyxy: detections_for_tracker = np.empty((0, 6))
+                if not gt_for_frame_tuples:
+                     detections_for_tracker = np.empty((0, 6)) # No GT for this frame/cam
+                else:
+                    for _, cx, cy, w_gt, h_gt in gt_for_frame_tuples:
+                         if w_gt <= 0 or h_gt <= 0: continue # Skip invalid dimensions early
+
+                         x1 = cx - w_gt / 2
+                         y1 = cy - h_gt / 2
+                         x2 = cx + w_gt / 2
+                         y2 = cy + h_gt / 2
+
+                         # --- Clip coordinates to image boundaries ---
+                         x1_clipped = max(0.0, x1)
+                         y1_clipped = max(0.0, y1)
+                         x2_clipped = min(float(w_img), x2) # Use float for consistency
+                         y2_clipped = min(float(h_img), y2)
+
+                         # Recalculate width and height AFTER clipping
+                         w_clipped = x2_clipped - x1_clipped
+                         h_clipped = y2_clipped - y1_clipped
+
+                         # Only add the box if it still has positive dimensions after clipping
+                         if w_clipped > 0 and h_clipped > 0:
+                             valid_boxes_xyxy.append([x1_clipped, y1_clipped, x2_clipped, y2_clipped])
+                         else:
+                             # Log only if original box had area, to avoid spamming for GT outside FoV
+                             if w_gt > 0 and h_gt > 0:
+                                 logger.debug(f"[{run_name_tag}][{cam_id}] Frame {frame_idx}: GT box ({x1:.1f},{y1:.1f},{x2:.1f},{y2:.1f}) resulted in zero area after clipping to ({w_img}x{h_img}). Skipping.")
+
+                    num_gt_boxes_frame = len(valid_boxes_xyxy) # Count *valid* boxes
+                    total_gt_boxes_processed += num_gt_boxes_frame # Accumulate valid count
+
+                    if not valid_boxes_xyxy:
+                        detections_for_tracker = np.empty((0, 6)) # No *valid* GT boxes
                     else:
-                        detections_np = np.array(boxes_xyxy)
-                        confidences = np.ones((len(boxes_xyxy), 1))
-                        class_ids = np.full((len(boxes_xyxy), 1), self.person_class_id)
+                        # Prepare array for tracker: [x1, y1, x2, y2, conf, cls_id]
+                        detections_np = np.array(valid_boxes_xyxy) # Use CLIPPED boxes
+                        confidences = np.ones((len(valid_boxes_xyxy), 1)) # Assume GT confidence = 1
+                        class_ids = np.full((len(valid_boxes_xyxy), 1), self.person_class_id)
                         detections_for_tracker = np.hstack((detections_np, confidences, class_ids))
+
 
                 # --- Update Tracker ---
                 tracker_output: Optional[np.ndarray] = None
                 try:
+                    # Input is [N, 6] -> [x1, y1, x2, y2, conf, cls]
                     tracker_output = tracker_instance.update(detections_for_tracker, frame_bgr)
+                    # Output is usually [M, 7] -> [x1, y1, x2, y2, track_id, conf, cls]
                 except cv2.error as cv_err:
+                    # Catch the specific error if it still occurs (e.g., due to internal tracker issues)
                     logger.error(f"[{run_name_tag}][{cam_id}] OpenCV error during update (Frame {frame_idx}): {cv_err}", exc_info=False)
-                    tracker_output = np.empty((0, 7))
+                    logger.error(f"Input detections shape: {detections_for_tracker.shape}")
+                    tracker_output = np.empty((0, 7)) # Return empty on error
                 except Exception as update_err:
                      logger.error(f"[{run_name_tag}][{cam_id}] Generic error during update (Frame {frame_idx}): {update_err}", exc_info=True)
+                     logger.error(f"Input detections shape: {detections_for_tracker.shape}")
                      tracker_output = np.empty((0, 7))
 
                 frame_end_time = time.perf_counter()
                 frame_processing_times.append((frame_end_time - frame_start_time) * 1000)
 
-                # --- Determine output shape ---
-                default_cols = 7
-                output_shape_cols = default_cols
-                if tracker_output is not None and isinstance(tracker_output, np.ndarray) and tracker_output.ndim == 2:
-                    if tracker_output.shape[1] > 0: output_shape_cols = tracker_output.shape[1]
+                # --- Determine output shape (assuming standard 7 columns or padding) ---
+                default_cols = 7 # x1, y1, x2, y2, id, conf, cls
 
                 # --- Store Tracker Output ---
+                num_tracks_frame = 0
                 if tracker_output is not None and isinstance(tracker_output, np.ndarray) and tracker_output.size > 0:
-                    if tracker_output.ndim == 2 and tracker_output.shape[1] == output_shape_cols:
-                        self.raw_tracker_outputs[(frame_idx, cam_id)] = tracker_output
-                        total_tracks_output += len(tracker_output)
-                        pbar.set_postfix({"GT": num_gt_boxes_frame, "Tracks": len(tracker_output)})
+                    if tracker_output.ndim == 2 and tracker_output.shape[1] >= 5: # Need at least x1,y1,x2,y2,id
+                        # Ensure array has expected number of columns, pad if necessary (e.g., missing class)
+                        if tracker_output.shape[1] < default_cols:
+                            padded_output = np.full((tracker_output.shape[0], default_cols), np.nan)
+                            padded_output[:, :tracker_output.shape[1]] = tracker_output
+                            # Fill default class/conf if missing?
+                            if tracker_output.shape[1] < 7: padded_output[:, 6] = self.person_class_id # Default class
+                            if tracker_output.shape[1] < 6: padded_output[:, 5] = 1.0 # Default conf
+                            self.raw_tracker_outputs[(frame_idx, cam_id)] = padded_output
+                            num_tracks_frame = len(padded_output)
+                        else:
+                             # Slice just in case tracker returns extra columns
+                            self.raw_tracker_outputs[(frame_idx, cam_id)] = tracker_output[:, :default_cols]
+                            num_tracks_frame = len(tracker_output)
+
+                        total_tracks_output += num_tracks_frame
                     else:
-                        logger.warning(f"[{run_name_tag}][{cam_id}] Frame {frame_idx}: Output shape {tracker_output.shape} != expected cols {output_shape_cols}. Storing empty.")
-                        self.raw_tracker_outputs[(frame_idx, cam_id)] = np.empty((0, output_shape_cols))
-                        pbar.set_postfix({"GT": num_gt_boxes_frame, "Tracks": 0})
+                        logger.warning(f"[{run_name_tag}][{cam_id}] Frame {frame_idx}: Output shape {tracker_output.shape} invalid (< 5 cols or not 2D). Storing empty.")
+                        self.raw_tracker_outputs[(frame_idx, cam_id)] = np.empty((0, default_cols))
                 else:
-                    self.raw_tracker_outputs[(frame_idx, cam_id)] = np.empty((0, output_shape_cols))
-                    pbar.set_postfix({"GT": num_gt_boxes_frame, "Tracks": 0})
+                    self.raw_tracker_outputs[(frame_idx, cam_id)] = np.empty((0, default_cols))
+
+                pbar.set_postfix({"GT_Valid": num_gt_boxes_frame, "Tracks": num_tracks_frame})
 
             # --- Finalize ---
             pbar.close()
@@ -345,13 +392,13 @@ class TrackingReidPipeline:
             self.summary_metrics['perf_total_processing_time_sec'] = round(total_processing_time_sec, 2)
             self.summary_metrics['perf_avg_frame_processing_time_ms'] = round(np.mean(frame_processing_times), 2) if frame_processing_times else 0
             self.summary_metrics['perf_processing_fps'] = round(frames_processed_count / total_processing_time_sec, 2) if total_processing_time_sec > 0 else 0
-            self.summary_metrics['input_total_gt_boxes_fed'] = total_gt_boxes_processed
+            self.summary_metrics['input_total_gt_boxes_fed'] = total_gt_boxes_processed # Count of valid boxes fed
             self.summary_metrics['output_total_tracked_instances'] = total_tracks_output # Sum of len() over frames
 
             self.processed = True
             logger.info(f"[{run_name_tag}] --- Frame Processing Finished ---")
             logger.info(f"[{run_name_tag}] Processed {frames_processed_count} frames in {total_processing_time_sec:.2f} seconds.")
-            logger.info(f"[{run_name_tag}] Total GT boxes fed: {total_gt_boxes_processed}, Total tracks output: {total_tracks_output}")
+            logger.info(f"[{run_name_tag}] Total valid GT boxes fed: {total_gt_boxes_processed}, Total tracks output: {total_tracks_output}")
             return True
 
         except Exception as e:
@@ -367,7 +414,7 @@ class TrackingReidPipeline:
 
     def calculate_metrics(self) -> bool:
         """
-        Calculates summary and standard MOT metrics using motmetrics.
+        Calculates summary and IDF1 tracking metrics using motmetrics.
         """
         if not self.processed:
             logger.error("Cannot calculate metrics: Frame processing did not complete successfully.")
@@ -377,7 +424,7 @@ class TrackingReidPipeline:
              return False
 
         run_name_tag = f"Trk:{self.tracker_type}_ReID:{self.reid_model_type}"
-        logger.info(f"[{run_name_tag}] Calculating tracking metrics...")
+        logger.info(f"[{run_name_tag}] Calculating tracking metrics (IDF1 focus)...")
 
         # --- Basic Summary (from tracking_metrics.py - keep for now) ---
         try:
@@ -386,168 +433,118 @@ class TrackingReidPipeline:
         except Exception as e:
              logger.warning(f"[{run_name_tag}] Error calculating basic summary metrics: {e}", exc_info=False)
 
-        # --- MOT Metrics Calculation ---
+        # --- MOT Metrics Calculation (IDF1 focus) ---
         if not MOTMETRICS_AVAILABLE:
-            logger.warning("`motmetrics` library not available. Skipping standard MOT metric calculation.")
+            logger.warning("`motmetrics` library not available. Skipping IDF1 calculation.")
             self.metrics_calculated = True # Mark as calculated (even if partially)
             return True # Allow proceeding with basic summary + perf metrics
 
-        logger.info(f"[{run_name_tag}] Preparing data for motmetrics...")
+        logger.info(f"[{run_name_tag}] Preparing data for motmetrics (IDF1)...")
         acc = mm.MOTAccumulator(auto_id=True)
         processed_frame_indices = set(idx for idx, cam in self.raw_tracker_outputs.keys())
         gt_frame_indices = set(idx for idx, cam in self.ground_truth_data.keys())
-        # Evaluate only on frames where both GT and tracker output might exist
         eval_frame_indices = sorted(list(processed_frame_indices.union(gt_frame_indices)))
         if not eval_frame_indices:
-            logger.warning("No frame indices found for evaluation (GT or Hyp). Cannot calculate MOT metrics.")
+            logger.warning("No frame indices found for evaluation (GT or Hyp). Cannot calculate IDF1.")
             self.metrics_calculated = True
             return True
 
         max_frame_idx_processed = max(eval_frame_indices) if eval_frame_indices else -1
-        logger.info(f"Evaluating MOT metrics across {len(eval_frame_indices)} unique frame indices (up to {max_frame_idx_processed})...")
+        logger.info(f"Evaluating IDF1 metrics across {len(eval_frame_indices)} unique frame indices (up to {max_frame_idx_processed})...")
 
-        # Convert GT and Hyp data frame by frame
-        gt_data_list = []
-        hyp_data_list = []
+        # --- Use tqdm for metric calculation loop ---
+        pbar_metrics = tqdm(eval_frame_indices, desc=f"Accumulating IDF1 ({run_name_tag})")
 
-        # Define expected columns for motmetrics DataFrame
-        mot_cols = ['FrameId', 'Id', 'X', 'Y', 'Width', 'Height', 'Confidence', 'ClassId', 'Visibility']
-
-        for frame_idx in eval_frame_indices:
+        for frame_idx in pbar_metrics:
             frame_gt_ids = []
             frame_gt_boxes = []
             frame_hyp_ids = []
             frame_hyp_boxes = []
-            frame_hyp_confs = []
 
             # Aggregate GT for this frame index across all cameras
-            # IMPORTANT: motmetrics typically evaluates a single sequence.
-            # Evaluating across cameras simultaneously like this assumes IDs are globally unique
-            # OR that distances between objects in different cameras are infinite.
-            # This simple aggregation might inflate FN/FP if objects appear in multiple cameras
-            # under different GT IDs without proper cross-camera association (which this pipeline doesn't do).
-            # For a true multi-camera evaluation, a different setup is needed.
-            # Here, we proceed assuming we want a "scene-level" metric based on GT presence.
-            gt_objs_in_frame: Dict[int, Tuple[float,float,float,float]] = {} # Store GT obj_id -> bbox
             for cam_id in self.data_loader.active_camera_ids:
                 gt_tuples = self.ground_truth_data.get((frame_idx, cam_id), [])
                 for obj_id, cx, cy, w, h in gt_tuples:
                      if w > 0 and h > 0:
                         x1, y1 = cx - w / 2, cy - h / 2
-                        # Add to list for motmetrics dataframe format
-                        gt_data_list.append({
-                            'FrameId': frame_idx + 1, # motmetrics often uses 1-based indexing
-                            'Id': obj_id,
-                            'X': x1, 'Y': y1, 'Width': w, 'Height': h,
-                            'Confidence': 1.0, # GT confidence is 1
-                            'ClassId': self.person_class_id,
-                            'Visibility': 1.0
-                        })
-                        # Track for distance calculation
                         frame_gt_ids.append(obj_id)
                         frame_gt_boxes.append([x1, y1, w, h]) # Use x, y, w, h for iou_matrix
-
 
             # Aggregate Hypotheses for this frame index across all cameras
             for cam_id in self.data_loader.active_camera_ids:
                 tracker_output = self.raw_tracker_outputs.get((frame_idx, cam_id))
                 if tracker_output is not None and tracker_output.size > 0:
+                    # Expected format: x1, y1, x2, y2, track_id, conf, cls
                     for row in tracker_output:
-                        # Expected format: x1, y1, x2, y2, track_id, conf, cls, ...
-                        if len(row) >= 7:
-                            x1, y1, x2, y2 = row[0], row[1], row[2], row[3]
-                            track_id = int(row[4])
-                            conf = float(row[5])
-                            cls_id = int(row[6])
-                            w, h = x2 - x1, y2 - y1
-                            if w > 0 and h > 0:
-                                # Add to list for motmetrics dataframe format
-                                hyp_data_list.append({
-                                    'FrameId': frame_idx + 1, # Use 1-based indexing consistent with GT
-                                    'Id': track_id,
-                                    'X': x1, 'Y': y1, 'Width': w, 'Height': h,
-                                    'Confidence': conf,
-                                    'ClassId': cls_id,
-                                    'Visibility': 1.0 # Assume visible
-                                })
-                                # Track for distance calculation
-                                frame_hyp_ids.append(track_id)
-                                frame_hyp_boxes.append([x1, y1, w, h]) # Use x, y, w, h
-
+                        x1, y1, x2, y2 = row[0], row[1], row[2], row[3]
+                        track_id = int(row[4])
+                        w, h = x2 - x1, y2 - y1
+                        if w > 0 and h > 0:
+                            frame_hyp_ids.append(track_id)
+                            frame_hyp_boxes.append([x1, y1, w, h]) # Use x, y, w, h
 
             # --- Update Accumulator for this frame ---
-            # Calculate IoU distance matrix for this frame (only if both GT and Hyp exist)
             if frame_gt_boxes and frame_hyp_boxes:
-                # distance = 1 - iou
-                # motmetrics expects distance, lower is better.
-                # Input boxes are [x, y, w, h]
-                iou_dists = mm.distances.iou_matrix(frame_gt_boxes, frame_hyp_boxes, max_iou=1.0)
-                # Update accumulator
-                acc.update(
-                    frame_gt_ids,           # Ground truth IDs for this frame
-                    frame_hyp_ids,          # Tracker IDs for this frame
-                    iou_dists               # Distance matrix
-                    # frameid=frame_idx + 1 # Optional: Can specify frameid here too
-                )
+                iou_dists = mm.distances.iou_matrix(frame_gt_boxes, frame_hyp_boxes, max_iou=0.5) # Standard 0.5 IoU threshold
+                acc.update(frame_gt_ids, frame_hyp_ids, iou_dists)
             elif frame_gt_ids:
-                # Only GT exists, update with empty hypothesis
-                 acc.update(frame_gt_ids, [], [])
+                acc.update(frame_gt_ids, [], [])
             elif frame_hyp_ids:
-                 # Only Hyp exists, update with empty GT
-                 acc.update([], frame_hyp_ids, [])
-            # If neither exists, acc.update([], [], []) is implicitly handled or skipped
+                acc.update([], frame_hyp_ids, [])
 
+        pbar_metrics.close()
         logger.info(f"[{run_name_tag}] motmetrics accumulator updated for {len(eval_frame_indices)} frames.")
 
         # --- Compute and Log Metrics ---
         try:
             mh = mm.metrics.create()
-            # Compute metrics using the standard MOTChallenge set
-            summary = mh.compute(acc, metrics=mm.metrics.motchallenge_metrics, name='acc')
+            # *** MODIFICATION: Request only the metrics needed for IDF1 ***
+            logger.info(f"[{run_name_tag}] Computing IDF1 related metrics...")
+            summary = mh.compute(acc, metrics=REQUESTED_MOT_METRICS, name='idf1_summary')
 
             # Format metrics for logging
-            # Convert pandas series/df to dict for easier logging
             summary_dict = summary.to_dict(orient='index')
-            if 'acc' in summary_dict: # Check if the summary name 'acc' exists
-                mot_metrics_results = summary_dict['acc']
-                logger.info(f"[{run_name_tag}] MOT Metrics Calculation Complete:")
-                # Log common metrics
-                for metric_name, value in mot_metrics_results.items():
-                     # Clean key name for MLflow
-                     mlflow_key = f"mot_{metric_name.lower().replace('%', '_pct')}"
-                     # Store in summary dict
-                     self.summary_metrics[mlflow_key] = value
-                     logger.info(f"  {metric_name:<20}: {value:.4f}" if isinstance(value, float) else f"  {metric_name:<20}: {value}")
+            if 'idf1_summary' in summary_dict: # Check if the summary name exists
+                idf1_metrics_results = summary_dict['idf1_summary']
+                logger.info(f"[{run_name_tag}] IDF1 Metrics Calculation Complete:")
+
+                # Log computed IDF1 metrics
+                for metric_name in REQUESTED_MOT_METRICS:
+                    if metric_name in idf1_metrics_results:
+                        value = idf1_metrics_results[metric_name]
+                        # Clean key name for MLflow (use 'mot_' prefix for consistency)
+                        mlflow_key = f"mot_{metric_name.lower().replace('%', '_pct')}"
+                        # Store in summary dict
+                        self.summary_metrics[mlflow_key] = value
+                        log_value = f"{value:.4f}" if isinstance(value, (float, np.float_)) else str(value)
+                        logger.info(f"  {metric_name:<20}: {log_value}")
+                    else:
+                        logger.warning(f"Metric '{metric_name}' requested but not found in results.")
+                        self.summary_metrics[f"mot_{metric_name.lower()}"] = 0.0 # Placeholder
 
             else:
-                logger.warning(f"[{run_name_tag}] Could not find summary results under name 'acc' in motmetrics output.")
-
-
-            # Optionally compute HOTA metrics separately if needed
-            # hota_summary = mh.compute(acc, metrics=['hota', 'detah', 'assah'], name='hota_acc')
-            # logger.info(f"[{run_name_tag}] HOTA Metrics:\n{hota_summary}")
-            # ... add hota metrics to self.summary_metrics ...
+                logger.warning(f"[{run_name_tag}] Could not find results under name 'idf1_summary' in motmetrics output.")
+                # Add placeholders if calculation fails unexpectedly
+                for key in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{key.lower()}"] = 0.0
 
         except Exception as mot_err:
-            logger.error(f"[{run_name_tag}] Failed during motmetrics computation: {mot_err}", exc_info=True)
+            logger.error(f"[{run_name_tag}] Failed during motmetrics IDF1 computation: {mot_err}", exc_info=True)
             # Add placeholders if calculation fails
-            placeholder_metrics = ['mota', 'idf1', 'motp', 'num_switches', 'mostly_tracked', 'mostly_lost', 'num_false_positives', 'num_misses']
-            for key in placeholder_metrics:
-                self.summary_metrics[f"mot_{key}"] = 0.0 # Or np.nan
-
+            for key in REQUESTED_MOT_METRICS:
+                self.summary_metrics[f"mot_{key.lower()}"] = 0.0
 
         self.metrics_calculated = True
-        logger.info(f"[{run_name_tag}] Finished calculating all tracking metrics.")
+        logger.info(f"[{run_name_tag}] Finished calculating tracking metrics (IDF1 focus).")
         return True
 
     def run(self) -> Tuple[bool, TrackingResultSummary]:
         """
-        Executes the full Tracking+ReID pipeline, calculating MOT metrics.
+        Executes the full Tracking+ReID pipeline, calculating IDF1 metric.
 
         Returns:
             Tuple[bool, TrackingResultSummary]:
                 - Success status (bool).
-                - Dictionary containing summary and MOT metrics.
+                - Dictionary containing summary and IDF1 metrics.
         """
         run_name_tag = f"Trk:{self.tracker_type}_ReID:{self.reid_model_type}"
         success = False
@@ -558,8 +555,9 @@ class TrackingReidPipeline:
                  return False, self.summary_metrics
 
             if not self.process_frames():
-                self.calculate_metrics() # Attempt metrics even on partial processing
-                logger.warning(f"[{run_name_tag}] Frame processing failed. Metrics calculated on partial data.")
+                # Attempt metrics even on partial processing, might have perf metrics
+                metrics_success = self.calculate_metrics()
+                logger.warning(f"[{run_name_tag}] Frame processing failed. Metrics calculation on partial data: {'Success' if metrics_success else 'Failed'}")
                 return False, self.summary_metrics
 
             if not self.calculate_metrics():
@@ -572,7 +570,11 @@ class TrackingReidPipeline:
         except Exception as e:
             logger.critical(f"[{run_name_tag}] Unexpected error during Tracking+ReID pipeline execution: {e}", exc_info=True)
             success = False
-            if not self.summary_metrics: self.summary_metrics = {} # Ensure dict exists
+            # Ensure summary_metrics is a dict even if initialization failed early
+            if not hasattr(self, 'summary_metrics') or self.summary_metrics is None:
+                 self.summary_metrics = {}
+            elif not isinstance(self.summary_metrics, dict):
+                 self.summary_metrics = {} # Reset if it became something else
 
         self.dump_cache()
 
@@ -581,18 +583,32 @@ class TrackingReidPipeline:
 
     def dump_cache(self):
         """Saves CMC cache for each tracker instance if applicable."""
-        # (Method remains the same as previous version)
         run_name_tag = f"Trk:{self.tracker_type}_ReID:{self.reid_model_type}"
-        if not self.tracker_instances: return
+        if not hasattr(self, 'tracker_instances') or not self.tracker_instances: return
 
         for cam_id, tracker_instance in self.tracker_instances.items():
             if tracker_instance is None: continue
             cache_saved = False
+            # Check specific cache types known in BoxMOT
             if hasattr(tracker_instance, 'cmc') and hasattr(tracker_instance.cmc, 'save_cache'):
                 try:
-                    tracker_instance.cmc.save_cache(); logger.info(f"[{run_name_tag}][{cam_id}] Saved CMC cache."); cache_saved = True
+                    tracker_instance.cmc.save_cache()
+                    logger.info(f"[{run_name_tag}][{cam_id}] Saved CMC cache.")
+                    cache_saved = True
                 except Exception as e: logger.warning(f"[{run_name_tag}][{cam_id}] Failed to save CMC cache: {e}")
+            # Check BoostTrack specific cache
+            elif hasattr(tracker_instance, 'tracker') and hasattr(tracker_instance.tracker, 'save_cache'): # For BoostTrack
+                 try:
+                     tracker_instance.tracker.save_cache()
+                     logger.info(f"[{run_name_tag}][{cam_id}] Saved BoostTrack internal tracker cache.")
+                     cache_saved = True
+                 except Exception as e: logger.warning(f"[{run_name_tag}][{cam_id}] Failed to save BoostTrack cache: {e}")
+            # Generic check (might catch others or internal methods)
             elif hasattr(tracker_instance, 'save_cache'):
                 try:
-                    tracker_instance.save_cache(); logger.info(f"[{run_name_tag}][{cam_id}] Saved tracker cache (direct call)."); cache_saved = True
-                except Exception as e: logger.warning(f"[{run_name_tag}][{cam_id}] Failed to save tracker cache (direct call): {e}")
+                    tracker_instance.save_cache()
+                    logger.info(f"[{run_name_tag}][{cam_id}] Saved tracker cache (generic call).")
+                    cache_saved = True
+                except Exception as e: logger.warning(f"[{run_name_tag}][{cam_id}] Failed to save tracker cache (generic call): {e}")
+
+            # if not cache_saved: logger.debug(f"[{run_name_tag}][{cam_id}] No specific cache save method found for {type(tracker_instance)}.")

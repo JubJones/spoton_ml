@@ -88,7 +88,12 @@ def log_params_recursive(params_dict: Dict[str, Any], parent_key: str = ""):
                  mlflow.log_param(mlflow_key, str(value)[:500]) # Fallback
         else:
             # Log scalar values, truncate if too long
-            mlflow.log_param(mlflow_key, str(value)[:500])
+            param_value_str = str(value)
+            # Truncate param values longer than MLflow limit (e.g., 500 chars)
+            if len(param_value_str) > 500:
+                param_value_str = param_value_str[:497] + "..."
+                logger.debug(f"Truncated long parameter value for key: {mlflow_key}")
+            mlflow.log_param(mlflow_key, param_value_str)
 
 
 def log_metrics_dict(metrics: Dict[str, Any], prefix: str = "eval"):
@@ -101,27 +106,29 @@ def log_metrics_dict(metrics: Dict[str, Any], prefix: str = "eval"):
         return
 
     # Filter only numeric types that MLflow can handle directly
-    numeric_metrics = {
-        f"{prefix}_{k.replace('-', '_').replace('.', '_')}": v for k, v in metrics.items()
-        if isinstance(v, (int, float, np.number)) and np.isfinite(v)
-    }
-    # Identify keys that were not converted to numeric metrics
-    original_keys_numeric = {k.replace('-', '_').replace('.', '_') for k in metrics if isinstance(metrics[k], (int, float, np.number)) and np.isfinite(metrics[k])}
-    non_numeric_keys = [k for k in metrics if k.replace('-', '_').replace('.', '_') not in original_keys_numeric]
+    numeric_metrics = {}
+    non_numeric_items = {}
 
+    for k, v in metrics.items():
+         # Standardize key: replace problematic chars, ensure prefix
+         mlflow_key_base = k.replace('-', '_').replace('.', '_').replace('%', '_pct')
+         # Avoid double prefixing if already present (e.g., from basic summary)
+         if mlflow_key_base.startswith(f"{prefix}_"):
+             mlflow_key = mlflow_key_base
+         else:
+             mlflow_key = f"{prefix}_{mlflow_key_base}"
 
-    if non_numeric_keys:
-        # Log non-numeric items as params if they are simple types
-        for key in non_numeric_keys:
-            value = metrics[key]
-            if isinstance(value, (str, bool)):
-                 mlflow_key = f"{prefix}_{key.replace('-', '_').replace('.', '_')}"
-                 # Ensure param value length is within limits (MLflow server default is 500)
-                 mlflow.log_param(mlflow_key, str(value)[:499])
-            else:
-                 logger.debug(f"Skipping non-numeric/non-simple metric/param: {key} (type: {type(value)})")
+         # Check if value is numeric and finite
+         if isinstance(v, (int, float, np.number)) and np.isfinite(v):
+             numeric_metrics[mlflow_key] = float(v) # Cast to float for consistency
+         else:
+             # Store non-numeric items for potential parameter logging
+             if isinstance(v, (str, bool)) or v is None:
+                  non_numeric_items[mlflow_key] = v
+             else:
+                  logger.debug(f"Skipping non-numeric/non-simple metric/param: {k} (type: {type(value)})")
 
-
+    # Log numeric metrics
     if numeric_metrics:
         log_type = prefix.upper()
         logger.info(f"Logging {len(numeric_metrics)} numeric {log_type} metrics...")
@@ -141,6 +148,18 @@ def log_metrics_dict(metrics: Dict[str, Any], prefix: str = "eval"):
             logger.info(f"Logged {success_count} {log_type} metrics individually after batch failure.")
     else:
         logger.warning(f"No numeric metrics found in the provided dictionary for prefix '{prefix}'.")
+
+    # Log non-numeric items as parameters (ensure value is simple string/bool)
+    if non_numeric_items:
+        logger.info(f"Logging {len(non_numeric_items)} non-numeric items as parameters (prefix: {prefix})...")
+        for key, value in non_numeric_items.items():
+             param_value_str = str(value)
+             if len(param_value_str) > 500: # MLflow limit
+                 param_value_str = param_value_str[:497] + "..."
+             try:
+                 mlflow.log_param(key, param_value_str)
+             except Exception as param_log_err:
+                  logger.warning(f"Failed to log non-numeric item as param '{key}': {param_log_err}", exc_info=False)
 
 
 def log_git_info():
@@ -393,11 +412,12 @@ def run_single_tracking_reid_experiment(
 
         # --- MLflow Logging: Parameters & Tags ---
         logger.info(f"[{run_name_tag}] Logging Tracking+ReID parameters...")
+        # Log core config sections, seed, device preference
         log_params_recursive({"tracker": tracker_config, "reid_model": reid_config, "data": run_config.get("data", {}), "environment": {"seed": seed, "device_pref": base_device_preference}})
         mlflow.log_param("environment.seed", seed)
         mlflow.log_param("environment.requested_device", base_device_preference)
         mlflow.log_param("environment.resolved_initial_device", str(resolved_initial_device))
-        # Actual device used will be logged by pipeline if possible
+        # Actual device used will be logged by pipeline or set as tag later
 
         logger.info(f"[{run_name_tag}] Logging Tracking+ReID tags...")
         mlflow.set_tag("tracker_type", tracker_type)
@@ -422,31 +442,56 @@ def run_single_tracking_reid_experiment(
         # Pass the resolved device preference to the pipeline
         pipeline = TrackingReidPipeline(run_config, actual_device, PROJECT_ROOT)
 
-        # --- *** MODIFICATION: Expect only 2 return values *** ---
+        # --- Expect only 2 return values from pipeline.run ---
         pipeline_success, pipeline_summary = pipeline.run()
-        # --- *** END MODIFICATION *** ---
 
         summary_metrics = pipeline_summary # Store for return
 
-        # Log the actual device used by the tracker(s) if reported
+        # --- *** MODIFICATION: Log actual device as TAGS to avoid INVALID_PARAMETER_VALUE *** ---
         if hasattr(pipeline, 'actual_tracker_devices') and pipeline.actual_tracker_devices:
-             # Log devices per camera
+             logger.info(f"[{run_name_tag}] Logging actual tracker devices as tags...")
+             unique_devices_str = set()
              for cam_id, tracker_device in pipeline.actual_tracker_devices.items():
-                 # Convert potential string device ('0', 'mps') back to torch.device for consistent logging
-                 if isinstance(tracker_device, str):
-                      try: tracker_device_log = torch.device(f"cuda:{tracker_device}") if tracker_device.isdigit() else torch.device(tracker_device)
-                      except Exception: tracker_device_log = tracker_device # Keep as string if conversion fails
-                 else: tracker_device_log = tracker_device
-                 mlflow.log_param(f"environment.actual_tracker_device_{cam_id}", str(tracker_device_log))
-             # Log a summary if all devices are the same
-             unique_devices = set(str(d) for d in pipeline.actual_tracker_devices.values())
-             if len(unique_devices) == 1:
-                 mlflow.log_param("environment.actual_tracker_device_all", unique_devices.pop())
+                 # Convert potential string device ('0', 'mps') back to torch.device for consistent logging string
+                 tracker_device_str = "unknown"
+                 if isinstance(tracker_device, torch.device):
+                      tracker_device_str = str(tracker_device)
+                 elif isinstance(tracker_device, str):
+                      # Try to interpret common string representations
+                      if tracker_device.isdigit(): tracker_device_str = f"cuda:{tracker_device}"
+                      elif tracker_device in ['cpu', 'mps']: tracker_device_str = tracker_device
+                      else: tracker_device_str = tracker_device # Keep original string if unknown format
+                 else: # Handle other types like int
+                     try: tracker_device_str = str(tracker_device)
+                     except Exception: pass
+
+                 try:
+                     # Log device per camera as a tag
+                     tag_key = f"actual_device_{cam_id}"
+                     mlflow.set_tag(tag_key, tracker_device_str)
+                     unique_devices_str.add(tracker_device_str)
+                 except Exception as tag_log_err:
+                      logger.warning(f"Failed to log tag '{tag_key}' with value '{tracker_device_str}': {tag_log_err}")
+
+             # Log a summary tag if all devices were the same
+             if len(unique_devices_str) == 1:
+                 try:
+                      mlflow.set_tag("actual_device_all", unique_devices_str.pop())
+                 except Exception as tag_log_err:
+                      logger.warning(f"Failed to log tag 'actual_device_all': {tag_log_err}")
+             elif len(unique_devices_str) > 1:
+                 try:
+                      # Log that devices were mixed if they differ
+                      mlflow.set_tag("actual_device_all", "mixed")
+                 except Exception as tag_log_err:
+                      logger.warning(f"Failed to log tag 'actual_device_all' (mixed): {tag_log_err}")
+        # --- *** END MODIFICATION *** ---
+
 
         # --- Log Metrics & Results ---
         if summary_metrics:
             logger.info(f"[{run_name_tag}] Logging tracking summary & MOT metrics...")
-            # Use prefix="mot" or "tracking" - let's use "tracking" to group all
+            # Use prefix="tracking" to group all related metrics
             log_metrics_dict(summary_metrics, prefix="tracking") # Log all calculated metrics
             try:  # Log summary dict as JSON artifact
                 results_dir = Path("./mlflow_results")
@@ -454,10 +499,25 @@ def run_single_tracking_reid_experiment(
                 summary_path = results_dir / f"run_{run_id}_tracking_summary.json"
                 with open(summary_path, 'w') as f:
                      # Ensure types are JSON serializable
-                     serializable_summary = {k: (v.item() if isinstance(v, (np.generic, np.number)) else v) for k, v in summary_metrics.items()}
-                     for k, v in serializable_summary.items(): # Handle torch tensors if any sneak in
-                         if isinstance(v, torch.Tensor): serializable_summary[k] = v.item() if v.numel() == 1 else v.cpu().tolist()
-                     # Format floats nicely
+                     serializable_summary = {}
+                     for k, v in summary_metrics.items():
+                         if isinstance(v, (np.generic, np.number)): serializable_summary[k] = v.item()
+                         elif isinstance(v, torch.Tensor): serializable_summary[k] = v.item() if v.numel() == 1 else v.cpu().tolist()
+                         # Handle simple types directly
+                         elif isinstance(v, (int, float, str, bool)) or v is None: serializable_summary[k] = v
+                         # Handle nested dicts (like HOTA breakdown)
+                         elif isinstance(v, dict):
+                             serializable_nested = {}
+                             for nk, nv in v.items():
+                                  if isinstance(nv, (np.generic, np.number)): serializable_nested[nk] = nv.item()
+                                  elif isinstance(nv, torch.Tensor): serializable_nested[nk] = nv.item() if nv.numel() == 1 else nv.cpu().tolist()
+                                  elif isinstance(nv, (int, float, str, bool)) or nv is None: serializable_nested[nk] = nv
+                                  else: serializable_nested[nk] = str(nv) # Fallback
+                             serializable_summary[k] = serializable_nested
+                         else: # Fallback string conversion for other types
+                             serializable_summary[k] = str(v)
+
+                     # Format floats nicely within the serializable dict before dumping
                      for k, v in serializable_summary.items():
                          if isinstance(v, float): serializable_summary[k] = f"{v:.4f}"
                          elif isinstance(v, dict): # Handle nested dicts like HOTA breakdown
