@@ -1,3 +1,6 @@
+# ================================================
+# FILE: src/training/runner.py (MODIFIED)
+# ================================================
 import logging
 import traceback
 import time
@@ -8,17 +11,18 @@ import torch
 
 from torch.utils.data import DataLoader
 import torchvision
-from torchvision.models.detection import FasterRCNN
+from torchvision.models.detection import FasterRCNN, FasterRCNN_ResNet50_FPN_Weights # Import Enum directly
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
+# --- MODIFICATION: Import tv_tensors if needed, otherwise just T ---
+# from torchvision import tv_tensors
 from torchvision.transforms import v2 as T
+# -----------------------------------------------------------------
 
 import mlflow
 
 from src.utils.torch_utils import collate_fn, get_optimizer, get_lr_scheduler
 from src.data.training_dataset import MTMMCDetectionDataset
 from src.training.pytorch_engine import train_one_epoch, evaluate as evaluate_pytorch
-# -----------------------------
-from src.training.ultralytics_engine import train_ultralytics_model
 from src.core.runner import log_params_recursive, log_git_info  # Reuse logging helpers
 
 logger = logging.getLogger(__name__)
@@ -32,15 +36,25 @@ def get_fasterrcnn_model(config: Dict[str, Any]) -> FasterRCNN:
     weights_str = model_config.get("backbone_weights", "DEFAULT")
     trainable_layers = model_config.get("trainable_backbone_layers", 3)
 
-    logger.info(f"Loading FasterRCNN model with weights: {weights_str}")
+    logger.info(f"Loading FasterRCNN model with weights identifier: {weights_str}")
+
+    weight_key = weights_str
+    enum_class_name = "FasterRCNN_ResNet50_FPN_Weights"
+    if enum_class_name in weights_str:
+         parts = weights_str.split('.')
+         if len(parts) > 1: weight_key = parts[-1]
+         else: weight_key = weights_str
+
+    logger.info(f"Attempting to access weights enum member: {weight_key}")
+
     try:
-        weights_enum = torchvision.models.detection.FasterRCNN_ResNet50_FPN_Weights[weights_str]
+        weights_enum_member = getattr(FasterRCNN_ResNet50_FPN_Weights, weight_key)
         model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
-            weights=weights_enum,
+            weights=weights_enum_member,
             trainable_backbone_layers=trainable_layers
         )
-    except KeyError:
-        logger.error(f"Invalid backbone_weights string: '{weights_str}'. Check torchvision documentation.")
+    except AttributeError:
+        logger.error(f"Invalid backbone_weights key: '{weight_key}'. Check torchvision documentation for available FasterRCNN_ResNet50_FPN_Weights members.")
         raise
     except Exception as e:
         logger.error(f"Error loading model weights: {e}")
@@ -52,24 +66,23 @@ def get_fasterrcnn_model(config: Dict[str, Any]) -> FasterRCNN:
     return model
 
 
-def get_rtdetr_model(config: Dict[str, Any]):
-    """Loads an RT-DETR model using Ultralytics."""
-    logger.info("RT-DETR model loading handled by Ultralytics engine.")
-    return None  # Placeholder, engine manages the object
-
-
 # --- Transforms ---
 def get_transform(train: bool, config: Dict[str, Any]) -> T.Compose:
     """Gets the appropriate transforms for training or validation."""
     transforms = []
-    transforms.append(T.ToImage())  # Convert PIL/np.ndarray to T.Image container
+    # --- MODIFICATION: Convert PIL/np.ndarray to T.Image happens in Dataset __getitem__ ---
+    # transforms.append(T.ToImage()) # Moved to Dataset
+    # ----------------------------------------------------------------------------------
     if train:
+        # These transforms work directly on T.Image and tv_tensors.BoundingBoxes
         transforms.append(T.RandomHorizontalFlip(p=0.5))
         # Add more augmentations here if desired (e.g., T.ColorJitter)
-    transforms.append(T.ToDtype(torch.float32, scale=True))  # Scales to [0.0, 1.0]
+    transforms.append(T.ToDtype(torch.float32, scale=True))  # Scales image to [0.0, 1.0]
     # Consider adding normalization if the backbone expects it
     # transforms.append(T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
-    transforms.append(T.SanitizeBoundingBoxes())
+    # --- MODIFICATION: Remove SanitizeBoundingBoxes ---
+    # transforms.append(T.SanitizeBoundingBoxes()) # REMOVED - Caused error with empty boxes
+    # -------------------------------------------------
     return T.Compose(transforms)
 
 
@@ -96,23 +109,18 @@ def run_single_training_job(
     data_config = run_config['data']
     env_config = run_config['environment']
     model_type = model_config.get('type', 'unknown').lower()
-    engine_type = training_config.get('engine', 'pytorch').lower()  # Default to pytorch
+    engine_type = training_config.get('engine', 'pytorch').lower()
     run_name_tag = model_config.get("name_tag", f"{model_type}_training_{run_id[:8]}")
 
     logger.info(f"--- Starting Single Training Job: {run_name_tag} (Run ID: {run_id}) ---")
     logger.info(f"Model Type: {model_type}, Engine: {engine_type}, Device: {device}")
 
-    # Create a run-specific directory for artifacts like generated YAMLs
     run_artifact_dir = project_root / "mlruns_temp_artifacts" / run_id
     run_artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    # --- Determine Person Class ID ---
-    # Assuming background=0, person=1 convention for PyTorch models
-    # Ultralytics typically uses 0-based indices based on data.yaml order
-    pytorch_person_class_id = 1  # Hardcode for FasterRCNN needing background=0
+    pytorch_person_class_id = 1
 
     try:
-        # --- Log Parameters ---
         logger.info("Logging parameters to MLflow...")
         log_params_recursive(run_config)
         mlflow.log_param("environment.actual_device", str(device))
@@ -120,9 +128,9 @@ def run_single_training_job(
         mlflow.set_tag("engine_type", engine_type)
         log_git_info()
 
-        # --- Data Loading ---
         logger.info("Creating Datasets and DataLoaders...")
         try:
+            # Pass the configuration to get_transform
             dataset_train = MTMMCDetectionDataset(run_config, mode="train",
                                                   transforms=get_transform(train=True, config=run_config))
             dataset_val = MTMMCDetectionDataset(run_config, mode="val",
@@ -140,8 +148,8 @@ def run_single_training_job(
             data_loader_train = DataLoader(
                 dataset_train, batch_size=batch_size, shuffle=True, num_workers=num_workers,
                 collate_fn=collate_fn, pin_memory=True if device.type == 'cuda' else False,
-                persistent_workers=True if num_workers > 0 else False,  # Improve perf
-                drop_last=True  # Avoid issues with batch norm if last batch is size 1
+                persistent_workers=True if num_workers > 0 else False,
+                drop_last=True
             )
             data_loader_val = None
             if len(dataset_val) > 0:
@@ -153,21 +161,17 @@ def run_single_training_job(
             logger.info("Datasets and DataLoaders created.")
         except Exception as e:
             logger.critical(f"Failed to create datasets/dataloaders: {e}", exc_info=True)
-            raise  # Propagate error to mark run as failed
+            raise
 
-        # --- Engine Specific Execution ---
         if engine_type == "pytorch":
-            # --- PyTorch Engine Logic (FasterRCNN) ---
             logger.info("Executing with PyTorch training engine...")
 
-            # Model Initialization
             logger.info("Initializing PyTorch model...")
-            if model_type != 'fasterrcnn':  # Add checks for other PyTorch models later
+            if model_type != 'fasterrcnn':
                 raise ValueError(f"PyTorch engine currently only supports 'fasterrcnn', got '{model_type}'")
             model = get_fasterrcnn_model(run_config)
             model.to(device)
 
-            # Optimizer and Scheduler
             logger.info("Initializing optimizer and scheduler...")
             lr = training_config.get("learning_rate", 0.001)
             weight_decay = training_config.get("weight_decay", 0.005)
@@ -175,35 +179,30 @@ def run_single_training_job(
             params = [p for p in model.parameters() if p.requires_grad]
             optimizer = get_optimizer(opt_name, params, lr, weight_decay)
 
-            scheduler_name = training_config.get("lr_scheduler", "StepLR").lower()  # Allow config key 'lr_scheduler'
+            scheduler_name = training_config.get("lr_scheduler", "StepLR").lower()
             scheduler_params = {
                 "step_size": training_config.get("lr_scheduler_step_size", 5),
                 "gamma": training_config.get("lr_scheduler_gamma", 0.1),
-                "T_max": training_config.get("epochs", 10)  # Example for CosineAnnealing
+                "T_max": training_config.get("epochs", 10)
             }
             lr_scheduler = get_lr_scheduler(scheduler_name, optimizer, **scheduler_params)
 
-            # Mixed Precision Scaler
             scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
             logger.info(f"AMP Scaler Enabled: {scaler is not None}")
 
-            # Checkpoint Directory
             checkpoint_dir_str = training_config.get("checkpoint_dir", "checkpoints")
-            checkpoint_dir = project_root / checkpoint_dir_str / run_id  # Subdir per run
+            checkpoint_dir = project_root / checkpoint_dir_str / run_id
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
             logger.info(f"Checkpoints will be saved in: {checkpoint_dir}")
 
-            # Training Loop
             num_epochs = training_config.get("epochs", 10)
-            # --- Determine best metric goal (higher/lower) ---
             save_best_metric_name = training_config.get("save_best_metric", "val_map_50").replace("val_", "eval_")
-            higher_is_better = "map" in save_best_metric_name  # Assume mAP metrics are higher-is-better
+            higher_is_better = "map" in save_best_metric_name
             best_metric_value = -float('inf') if higher_is_better else float('inf')
             logger.info(
                 f"Tracking best model based on '{save_best_metric_name}' ({'higher' if higher_is_better else 'lower'} is better).")
-            # --------------------------------------------------
             best_model_path = None
-            latest_path = None  # Define here for finally block
+            latest_path = None
 
             logger.info(f"--- Starting PyTorch Training Loop ({num_epochs} Epochs) ---")
             start_time_training = time.time()
@@ -211,7 +210,6 @@ def run_single_training_job(
             for epoch in range(num_epochs):
                 epoch_start_time = time.time()
 
-                # Train
                 avg_train_loss, avg_train_comp_losses = train_one_epoch(
                     model, optimizer, data_loader_train, device, epoch, scaler=scaler
                 )
@@ -219,23 +217,18 @@ def run_single_training_job(
                 for k, v in avg_train_comp_losses.items():
                     mlflow.log_metric(f"epoch_train_loss_{k}", v, step=epoch)
 
-                # Evaluate
                 avg_val_loss = float('nan')
                 eval_metrics = {}
                 if data_loader_val:
-                    # --- Pass person_class_id to evaluate ---
                     avg_val_loss, eval_metrics = evaluate_pytorch(
                         model, data_loader_val, device, epoch, person_class_id=pytorch_person_class_id
                     )
-                    # ----------------------------------------
                     mlflow.log_metric("epoch_val_loss_avg", avg_val_loss, step=epoch)
-                    # Log mAP metrics returned by evaluate_pytorch
                     for k, v in eval_metrics.items():
-                        mlflow.log_metric(k, v, step=epoch)  # Key should already have 'eval_' prefix
+                        mlflow.log_metric(k, v, step=epoch)
                 else:
                     logger.warning(f"Epoch {epoch}: No validation data loader. Skipping evaluation.")
 
-                # Update LR scheduler (if used)
                 current_lr = optimizer.param_groups[0]['lr']
                 mlflow.log_metric("learning_rate", current_lr, step=epoch)
                 if lr_scheduler:
@@ -247,11 +240,9 @@ def run_single_training_job(
                 epoch_duration = time.time() - epoch_start_time
                 logger.info(f"Epoch {epoch} completed in {epoch_duration:.2f} seconds. LR: {current_lr:.6f}")
 
-                # --- Save Checkpoint (Best and Last) ---
-                # Get the current metric value to compare
                 current_metric_value = eval_metrics.get(save_best_metric_name, None)
                 metric_improved = False
-                if current_metric_value is not None:
+                if current_metric_value is not None and not np.isnan(current_metric_value): # Check for NaN
                     if higher_is_better and current_metric_value > best_metric_value:
                         metric_improved = True
                         best_metric_value = current_metric_value
@@ -259,7 +250,6 @@ def run_single_training_job(
                         metric_improved = True
                         best_metric_value = current_metric_value
 
-                # Save latest model checkpoint
                 latest_path = checkpoint_dir / f"ckpt_epoch_{epoch}_latest.pth"
                 torch.save({
                     'epoch': epoch,
@@ -270,19 +260,17 @@ def run_single_training_job(
                     'val_metrics': eval_metrics
                 }, latest_path)
 
-                # Save best model if metric improved
                 if metric_improved:
                     best_model_path = checkpoint_dir / f"ckpt_best_{save_best_metric_name}.pth"
                     torch.save({
                         'epoch': epoch,
                         'model_state_dict': model.state_dict(),
-                        # Can add optimizer etc. if needed for resuming best
                     }, best_model_path)
                     logger.info(
                         f"Saved new best model checkpoint ({save_best_metric_name}={best_metric_value:.4f}): {best_model_path.name}")
                     mlflow.log_param("best_model_epoch", epoch)
                     mlflow.set_tag(f"best_{save_best_metric_name}", f"{best_metric_value:.4f}")
-                elif current_metric_value is None and epoch == 0:  # Save first epoch if no val
+                elif current_metric_value is None and epoch == 0:
                     best_model_path = checkpoint_dir / f"ckpt_best_epoch_0.pth"
                     torch.save({'epoch': epoch, 'model_state_dict': model.state_dict()}, best_model_path)
                     logger.info(f"Saved first epoch checkpoint as best (no validation): {best_model_path.name}")
@@ -290,37 +278,18 @@ def run_single_training_job(
             training_duration = time.time() - start_time_training
             logger.info(f"--- PyTorch Training Finished in {training_duration:.2f} seconds ---")
 
-            # Log best checkpoint as MLflow artifact
             if best_model_path and best_model_path.exists():
                 logger.info(f"Logging best model checkpoint artifact: {best_model_path.name}")
                 mlflow.log_artifact(str(best_model_path), artifact_path="checkpoints")
-            if latest_path and latest_path.exists():  # Log latest as well
+            if latest_path and latest_path.exists():
                 mlflow.log_artifact(str(latest_path), artifact_path="checkpoints/latest")
 
-            final_metrics = eval_metrics if data_loader_val else {
-                "train_loss": avg_train_loss}  # Return last epoch's eval metrics
+            final_metrics = eval_metrics if data_loader_val else {"train_loss": avg_train_loss}
             job_status = "FINISHED"
 
-
         elif engine_type == "ultralytics":
-            # --- Ultralytics Engine Logic (RTDETR, YOLO) ---
-            logger.info("Executing with Ultralytics training engine...")
-
-            if 'weights_path' not in model_config:
-                raise ValueError("Ultralytics engine requires 'model.weights_path' in config.")
-
-            success, metrics_from_ultralytics = train_ultralytics_model(
-                model_config=model_config, training_config=training_config,
-                data_config=data_config, env_config=env_config,
-                project_root=project_root, run_dir=run_artifact_dir, device=device
-            )
-
-            if success:
-                job_status = "FINISHED"
-                final_metrics = metrics_from_ultralytics  # Metrics logged by Ultralytics directly
-            else:
-                job_status = "FAILED";
-                final_metrics = None
+            logger.error(f"Attempted to use Ultralytics engine, but it's not configured or supported in this setup.")
+            job_status = "FAILED"
 
         else:
             logger.error(f"Unknown engine type: '{engine_type}' specified in training config.")
@@ -330,14 +299,14 @@ def run_single_training_job(
         logger.warning(f"[{run_name_tag}] Training job interrupted by user.")
         job_status = "KILLED"
         if mlflow.active_run(): mlflow.set_tag("run_outcome", "Killed by user")
-        raise  # Re-raise to allow outer handler to catch it
+        raise
 
     except Exception as e:
         logger.critical(f"[{run_name_tag}] An uncaught error occurred during the training job: {e}", exc_info=True)
         job_status = "FAILED"
         if mlflow.active_run():
             mlflow.set_tag("run_outcome", "Crashed")
-            try:  # Log error details to MLflow artifact
+            try:
                 error_log_content = f"Error Type: {type(e).__name__}\nError Message: {e}\n\nTraceback:\n{traceback.format_exc()}"
                 mlflow.log_text(error_log_content, "error_log.txt")
             except Exception as log_err:
@@ -345,9 +314,10 @@ def run_single_training_job(
 
     finally:
         logger.info(f"--- Finished Single Training Job: {run_name_tag} (Attempted Status: {job_status}) ---")
-        # Cleanup temporary run artifact dir
         try:
             import shutil
+            # Also need to import numpy for the NaN check in the loop
+            import numpy as np
             if run_artifact_dir.exists():
                 shutil.rmtree(run_artifact_dir)
                 logger.debug(f"Cleaned up temporary artifact directory: {run_artifact_dir}")

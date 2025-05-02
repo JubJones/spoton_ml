@@ -28,9 +28,6 @@ def train_one_epoch(
 ) -> Tuple[float, Dict[str, float]]:
     """
     Trains the model for one epoch using standard PyTorch logic.
-
-    Returns:
-        Tuple[float, Dict[str, float]]: Average epoch loss, dictionary of average component losses.
     """
     model.train()
     total_loss = 0.0

@@ -1,4 +1,4 @@
-parent_run_name: "mtmmc_s10_s47_detection_training_comparison" # Example name
+parent_run_name: "mtmmc_s10_s47_fasterrcnn_training" # Example name
 
 mlflow:
   experiment_name: "MTMMC Detection Training Comparison"
@@ -52,21 +52,21 @@ models_to_train:
       save_best_metric: "val_map_50" # Save based on mAP@0.50 (higher is better)
 
   # --- RT-DETR Configuration ---
-  - model:
-      type: "rtdetr" # Must match registry key in runner.py
-      name_tag: "RTDETR_L" # For run naming
-      weights_path: "rtdetr-l.pt" # Pretrained weights file/identifier for Ultralytics
-      num_classes: 1 # Ultralytics usually infers from data.yaml, but good practice for clarity
-      # Preprocessing controlled by Ultralytics engine
-
-    training: # Parameters for ultralytics_engine
-      engine: "ultralytics" # Specify the engine to use
-      epochs: 5 # Short epoch for testing
-      batch_size: 2 # SMALL batch size for testing
-      imgsz: 640
-      # Ultralytics uses its own optimizer/scheduler defaults, can override here if needed:
-      # optimizer: 'AdamW'
-      # lr0: 0.001
-      # Other ultralytics args: patience, device (will use env default), project, name...
-      ultralytics_project_name: "ultralytics_runs" # Subdir for Ultralytics outputs
-      # Note: data path (data.yaml) will be generated dynamically by the engine
+#  - model:
+#      type: "rtdetr" # Must match registry key in runner.py
+#      name_tag: "RTDETR_L" # For run naming
+#      weights_path: "rtdetr-l.pt" # Pretrained weights file/identifier for Ultralytics
+#      num_classes: 1 # Ultralytics usually infers from data.yaml, but good practice for clarity
+#      # Preprocessing controlled by Ultralytics engine
+#
+#    training: # Parameters for ultralytics_engine
+#      engine: "ultralytics" # Specify the engine to use
+#      epochs: 5 # Short epoch for testing
+#      batch_size: 2 # SMALL batch size for testing
+#      imgsz: 640
+#      # Ultralytics uses its own optimizer/scheduler defaults, can override here if needed:
+#      # optimizer: 'AdamW'
+#      # lr0: 0.001
+#      # Other ultralytics args: patience, device (will use env default), project, name...
+#      ultralytics_project_name: "ultralytics_runs" # Subdir for Ultralytics outputs
+#      # Note: data path (data.yaml) will be generated dynamically by the engine

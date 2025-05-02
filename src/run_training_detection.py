@@ -21,9 +21,7 @@ try:
     from src.utils.logging_utils import setup_logging
     from src.utils.mlflow_utils import setup_mlflow_experiment
     from src.utils.device_utils import get_selected_device
-    # Import the runner function for single jobs
     from src.training.runner import run_single_training_job
-    # Import core runner helpers only if needed (like log_git_info)
     from src.core.runner import log_git_info
 except ImportError as e:
     print(f"Error importing local modules in run_training_detection_comparison.py: {e}")

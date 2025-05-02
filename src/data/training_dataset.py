@@ -1,3 +1,6 @@
+# ================================================
+# FILE: src/data/training_dataset.py (MODIFIED)
+# ================================================
 import logging
 import random
 from pathlib import Path
@@ -6,6 +9,9 @@ from typing import List, Tuple, Dict, Any, Optional, Callable, Set
 import cv2
 import numpy as np
 import torch
+# --- MODIFICATION: Import tv_tensors ---
+from torchvision import tv_tensors
+# --------------------------------------
 from torch.utils.data import Dataset
 from torchvision.transforms import v2 as T  # Use v2 transforms
 
@@ -25,6 +31,7 @@ class MTMMCDetectionDataset(Dataset):
     PyTorch Dataset for loading MTMMC image frames and ground truth bounding boxes
     from gt.txt files for object detection training.
     Handles multiple scenes/cameras and data subsetting.
+    Uses tv_tensors for compatibility with torchvision.transforms.v2.
     """
 
     def __init__(
@@ -131,13 +138,15 @@ class MTMMCDetectionDataset(Dataset):
                         if filename not in annotations: annotations[filename] = []
                         annotations[filename].append((obj_id, center_x, center_y, bb_width, bb_height))
                     except ValueError:
-                        continue
+                        continue # Ignore lines with parsing errors
 
+            # Ensure every image file has an entry in annotations, even if empty
             for fname in image_filenames:
                 if fname not in annotations: annotations[fname] = []
 
         except Exception as e:
             logger.error(f"Error reading ground truth file {gt_file_path}: {e}", exc_info=True)
+            # Ensure annotations dict exists but is empty for all files on error
             annotations = {fname: [] for fname in image_filenames}
 
         return annotations, image_filenames
@@ -166,7 +175,7 @@ class MTMMCDetectionDataset(Dataset):
                     img_path = rgb_dir / filename
                     if img_path in unique_image_paths: continue  # Skip if already added
 
-                    annotations = cam_annotations.get(filename, [])
+                    annotations = cam_annotations.get(filename, []) # Get potentially empty list
                     if img_path.is_file():
                         self.data_samples.append((img_path, annotations))
                         unique_image_paths.add(img_path)
@@ -217,42 +226,63 @@ class MTMMCDetectionDataset(Dataset):
     def __len__(self) -> int:
         return len(self.samples_split)
 
-    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-        """Loads and returns a single sample (image tensor, target dict)."""
+    def __getitem__(self, idx: int) -> Tuple[Any, Dict[str, Any]]:
+        """
+        Loads and returns a single sample (image tensor/container, target dict with tv_tensors).
+        Handles cases where no ground truth annotations exist for a frame.
+        """
         if idx >= len(self.samples_split):
             raise IndexError(f"Index {idx} out of bounds for dataset split with length {len(self.samples_split)}")
 
         img_path, annotations = self.samples_split[idx]
+        dummy_image_tensor = None # For error handling
 
         try:
             img_bytes = np.fromfile(str(img_path), dtype=np.uint8)
             image = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
             if image is None: raise ValueError(f"Failed to decode image: {img_path}")
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+            img_h, img_w = image.shape[:2]
+
         except Exception as e:
             logger.error(f"Error loading image {img_path}: {e}. Returning dummy data.")
-            dummy_image = torch.zeros((3, 256, 256), dtype=torch.float32)
-            dummy_target = {"boxes": torch.zeros((0, 4), dtype=torch.float32),
-                            "labels": torch.zeros(0, dtype=torch.int64)}
-            # Apply dummy transforms if needed to match output type
-            if self.transforms:
-                dummy_image, dummy_target = self.transforms(dummy_image, dummy_target)
-            return dummy_image, dummy_target
+            img_h, img_w = 256, 256 # Dummy dimensions
+            # Create dummy tensors compatible with transforms (needs T.Image)
+            # Note: T.ToImage() inside transforms will handle numpy/PIL, but need a starting tensor/np array here
+            dummy_image_np = np.zeros((img_h, img_w, 3), dtype=np.uint8)
+            dummy_image_container = T.ToImage()(dummy_image_np) # Use ToImage transform
 
+            dummy_boxes = tv_tensors.BoundingBoxes(
+                torch.zeros((0, 4), dtype=torch.float32),
+                format="XYXY",
+                canvas_size=(img_h, img_w)
+            )
+            dummy_target = {
+                "boxes": dummy_boxes,
+                "labels": torch.zeros(0, dtype=torch.int64)
+            }
+            # Apply transforms to dummy data to ensure consistent output types
+            if self.transforms:
+                try:
+                    dummy_image_tensor, dummy_target = self.transforms(dummy_image_container, dummy_target)
+                except Exception as dummy_transform_err:
+                     logger.error(f"Error applying transforms even to dummy data: {dummy_transform_err}")
+                     # Fallback to basic tensor if transforms fail on dummy
+                     dummy_image_tensor = T.ToTensor()(dummy_image_np)
+            else:
+                 dummy_image_tensor = T.ToTensor()(dummy_image_np) # Basic tensor conversion
+
+            return dummy_image_tensor, dummy_target
+
+        # --- Process Annotations ---
         boxes = []
         labels = []
-        img_h, img_w = image.shape[:2]
         for _, cx, cy, w, h in annotations:
             x1 = cx - w / 2
             y1 = cy - h / 2
             x2 = cx + w / 2
             y2 = cy + h / 2
-            # Clamp boxes to image boundaries BEFORE conversion to tensor
-            x1 = max(0.0, x1)
-            y1 = max(0.0, y1)
-            x2 = min(float(img_w), x2)
-            y2 = min(float(img_h), y2)
-            # Add only if box has positive area after clamping
+            # Basic validity check (clip happens in BoundingBoxes or transforms)
             if x2 > x1 and y2 > y1:
                 boxes.append([x1, y1, x2, y2])
                 labels.append(self.class_id)
@@ -267,23 +297,62 @@ class MTMMCDetectionDataset(Dataset):
         if labels_tensor.nelement() == 0:
             labels_tensor = torch.zeros((0,), dtype=torch.int64)
 
-        target = {"boxes": boxes_tensor, "labels": labels_tensor}
+        # --- MODIFICATION: Wrap boxes in tv_tensors.BoundingBoxes ---
+        # This is crucial for transforms.v2 to work correctly, especially with empty boxes
+        target_boxes = tv_tensors.BoundingBoxes(
+            boxes_tensor,
+            format="XYXY", # Bounding box format is XYXY
+            canvas_size=(img_h, img_w) # Provide image dimensions
+        )
+        # ----------------------------------------------------------
+
+        target = {"boxes": target_boxes, "labels": labels_tensor}
+
+        # Wrap image in T.Image container BEFORE applying transforms
+        image_container = T.ToImage()(image)
 
         # Apply transforms
         if self.transforms:
             try:
-                # Wrap image in T.Image container before applying transforms
-                image_container = T.ToImage()(image)
-                image_tensor, target = self.transforms(image_container, target)
+                image_transformed, target_transformed = self.transforms(image_container, target)
             except Exception as transform_err:
+                # This is where the "No bounding boxes found" error was happening
                 logger.error(f"Error applying transforms to {img_path}: {transform_err}", exc_info=True)
-                # Return dummy data on transform error
-                dummy_image = torch.zeros((3, 256, 256), dtype=torch.float32)
-                dummy_target = {"boxes": torch.zeros((0, 4), dtype=torch.float32),
-                                "labels": torch.zeros(0, dtype=torch.int64)}
-                return dummy_image, dummy_target
-        else:
-            # Fallback: Basic conversion without transforms
-            image_tensor = T.ToTensor()(image)
 
-        return image_tensor, target
+                # Return consistent dummy data on transform error
+                img_h, img_w = 256, 256 # Dummy dimensions
+                dummy_image_np = np.zeros((img_h, img_w, 3), dtype=np.uint8)
+                # Transforms expect T.Image, so create it from numpy
+                dummy_image_container = T.ToImage()(dummy_image_np)
+                dummy_boxes = tv_tensors.BoundingBoxes(
+                    torch.zeros((0, 4), dtype=torch.float32),
+                    format="XYXY", canvas_size=(img_h, img_w)
+                )
+                dummy_target = {"boxes": dummy_boxes, "labels": torch.zeros(0, dtype=torch.int64)}
+
+                # Try applying transforms again to the dummy data
+                try:
+                     dummy_image_tensor, dummy_target = self.transforms(dummy_image_container, dummy_target)
+                except Exception as dummy_transform_err_inner:
+                     logger.error(f"Error applying transforms even to dummy data (inner): {dummy_transform_err_inner}")
+                     # Fallback to basic tensor if transforms fail on dummy
+                     dummy_image_tensor = T.ToTensor()(dummy_image_np) # Use original numpy dummy
+
+                return dummy_image_tensor, dummy_target # Return dummy data
+        else:
+            # Fallback: Basic conversion without transforms if none provided
+            image_transformed = T.ToTensor()(image_container) # Convert T.Image back to Tensor if needed? or keep T.Image? Check model input req.
+            target_transformed = target # No target transforms applied
+
+        # The model expects a Tensor for the image, not T.Image, so convert if needed
+        # However, some v2 models might accept T.Image directly. Assuming Tensor needed.
+        if isinstance(image_transformed, tv_tensors.Image):
+             image_output = image_transformed.to(torch.float32) # Convert to tensor if it's still T.Image
+        elif isinstance(image_transformed, torch.Tensor):
+             image_output = image_transformed
+        else:
+             logger.warning(f"Unexpected image type after transforms: {type(image_transformed)}. Attempting conversion.")
+             image_output = T.ToTensor()(image_transformed)
+
+
+        return image_output, target_transformed
