@@ -1,6 +1,3 @@
-# ================================================
-# FILE: src/training/runner.py (MODIFIED)
-# ================================================
 import logging
 import traceback
 import time
@@ -8,22 +5,20 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 
 import torch
+import numpy as np
 
 from torch.utils.data import DataLoader
 import torchvision
-from torchvision.models.detection import FasterRCNN, FasterRCNN_ResNet50_FPN_Weights # Import Enum directly
+from torchvision.models.detection import FasterRCNN, FasterRCNN_ResNet50_FPN_Weights
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-# --- MODIFICATION: Import tv_tensors if needed, otherwise just T ---
-# from torchvision import tv_tensors
 from torchvision.transforms import v2 as T
-# -----------------------------------------------------------------
 
 import mlflow
 
 from src.utils.torch_utils import collate_fn, get_optimizer, get_lr_scheduler
 from src.data.training_dataset import MTMMCDetectionDataset
 from src.training.pytorch_engine import train_one_epoch, evaluate as evaluate_pytorch
-from src.core.runner import log_params_recursive, log_git_info  # Reuse logging helpers
+from src.core.runner import log_params_recursive, log_git_info
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +27,7 @@ logger = logging.getLogger(__name__)
 def get_fasterrcnn_model(config: Dict[str, Any]) -> FasterRCNN:
     """Loads a pre-trained Faster R-CNN model and modifies the head."""
     model_config = config['model']
-    num_classes = model_config["num_classes"]  # Should be Person(1) + Background(0) = 2
+    num_classes = model_config["num_classes"]
     weights_str = model_config.get("backbone_weights", "DEFAULT")
     trainable_layers = model_config.get("trainable_backbone_layers", 3)
 
@@ -54,7 +49,7 @@ def get_fasterrcnn_model(config: Dict[str, Any]) -> FasterRCNN:
             trainable_backbone_layers=trainable_layers
         )
     except AttributeError:
-        logger.error(f"Invalid backbone_weights key: '{weight_key}'. Check torchvision documentation for available FasterRCNN_ResNet50_FPN_Weights members.")
+        logger.error(f"Invalid backbone_weights key: '{weight_key}'. Check torchvision documentation.")
         raise
     except Exception as e:
         logger.error(f"Error loading model weights: {e}")
@@ -62,7 +57,7 @@ def get_fasterrcnn_model(config: Dict[str, Any]) -> FasterRCNN:
 
     in_features = model.roi_heads.box_predictor.cls_score.in_features
     model.roi_heads.box_predictor = FastRCNNPredictor(in_features, num_classes)
-    logger.info(f"Model loaded. Output classes: {num_classes}. Trainable backbone layers: {trainable_layers}")
+    logger.info(f"Model loaded. Output classes: {num_classes}. Trainable layers: {trainable_layers}")
     return model
 
 
@@ -70,25 +65,24 @@ def get_fasterrcnn_model(config: Dict[str, Any]) -> FasterRCNN:
 def get_transform(train: bool, config: Dict[str, Any]) -> T.Compose:
     """Gets the appropriate transforms for training or validation."""
     transforms = []
-    # --- MODIFICATION: Convert PIL/np.ndarray to T.Image happens in Dataset __getitem__ ---
-    # transforms.append(T.ToImage()) # Moved to Dataset
-    # ----------------------------------------------------------------------------------
     if train:
-        # These transforms work directly on T.Image and tv_tensors.BoundingBoxes
         transforms.append(T.RandomHorizontalFlip(p=0.5))
-        # Add more augmentations here if desired (e.g., T.ColorJitter)
-    transforms.append(T.ToDtype(torch.float32, scale=True))  # Scales image to [0.0, 1.0]
-    # Consider adding normalization if the backbone expects it
-    # transforms.append(T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
-    # --- MODIFICATION: Remove SanitizeBoundingBoxes ---
-    # transforms.append(T.SanitizeBoundingBoxes()) # REMOVED - Caused error with empty boxes
-    # -------------------------------------------------
+
+    # Convert to float and scale to [0, 1] BEFORE normalization
+    transforms.append(T.ToDtype(torch.float32, scale=True))
+
+    # --- MODIFICATION: Add ImageNet Normalization ---
+    # This is crucial for models pre-trained on ImageNet
+    transforms.append(T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+    # ---------------------------------------------
+
     return T.Compose(transforms)
 
 
 # --- Main Runner Function for a Single Training Job ---
+# (run_single_training_job remains unchanged from the previous version)
 def run_single_training_job(
-        run_config: Dict[str, Any],  # Contains combined config for this specific job
+        run_config: Dict[str, Any],
         device: torch.device,
         project_root: Path
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
@@ -130,7 +124,6 @@ def run_single_training_job(
 
         logger.info("Creating Datasets and DataLoaders...")
         try:
-            # Pass the configuration to get_transform
             dataset_train = MTMMCDetectionDataset(run_config, mode="train",
                                                   transforms=get_transform(train=True, config=run_config))
             dataset_val = MTMMCDetectionDataset(run_config, mode="val",
@@ -190,6 +183,10 @@ def run_single_training_job(
             scaler = torch.cuda.amp.GradScaler() if device.type == 'cuda' else None
             logger.info(f"AMP Scaler Enabled: {scaler is not None}")
 
+            # --- Get gradient clipping value from config ---
+            gradient_clip_norm = training_config.get("gradient_clip_norm", None) # Get from config
+            # ---------------------------------------------
+
             checkpoint_dir_str = training_config.get("checkpoint_dir", "checkpoints")
             checkpoint_dir = project_root / checkpoint_dir_str / run_id
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
@@ -203,6 +200,7 @@ def run_single_training_job(
                 f"Tracking best model based on '{save_best_metric_name}' ({'higher' if higher_is_better else 'lower'} is better).")
             best_model_path = None
             latest_path = None
+            best_epoch_so_far = -1
 
             logger.info(f"--- Starting PyTorch Training Loop ({num_epochs} Epochs) ---")
             start_time_training = time.time()
@@ -210,9 +208,12 @@ def run_single_training_job(
             for epoch in range(num_epochs):
                 epoch_start_time = time.time()
 
+                # --- Pass grad clip value to train epoch ---
                 avg_train_loss, avg_train_comp_losses = train_one_epoch(
-                    model, optimizer, data_loader_train, device, epoch, scaler=scaler
+                    model, optimizer, data_loader_train, device, epoch, scaler=scaler,
+                    gradient_clip_norm=gradient_clip_norm # Pass the value
                 )
+                # ------------------------------------------
                 mlflow.log_metric("epoch_train_loss_avg", avg_train_loss, step=epoch)
                 for k, v in avg_train_comp_losses.items():
                     mlflow.log_metric(f"epoch_train_loss_{k}", v, step=epoch)
@@ -242,7 +243,7 @@ def run_single_training_job(
 
                 current_metric_value = eval_metrics.get(save_best_metric_name, None)
                 metric_improved = False
-                if current_metric_value is not None and not np.isnan(current_metric_value): # Check for NaN
+                if current_metric_value is not None and not np.isnan(current_metric_value):
                     if higher_is_better and current_metric_value > best_metric_value:
                         metric_improved = True
                         best_metric_value = current_metric_value
@@ -268,15 +269,19 @@ def run_single_training_job(
                     }, best_model_path)
                     logger.info(
                         f"Saved new best model checkpoint ({save_best_metric_name}={best_metric_value:.4f}): {best_model_path.name}")
-                    mlflow.log_param("best_model_epoch", epoch)
+                    best_epoch_so_far = epoch
                     mlflow.set_tag(f"best_{save_best_metric_name}", f"{best_metric_value:.4f}")
                 elif current_metric_value is None and epoch == 0:
                     best_model_path = checkpoint_dir / f"ckpt_best_epoch_0.pth"
                     torch.save({'epoch': epoch, 'model_state_dict': model.state_dict()}, best_model_path)
                     logger.info(f"Saved first epoch checkpoint as best (no validation): {best_model_path.name}")
+                    best_epoch_so_far = epoch
 
             training_duration = time.time() - start_time_training
             logger.info(f"--- PyTorch Training Finished in {training_duration:.2f} seconds ---")
+
+            if best_epoch_so_far >= 0:
+                mlflow.log_param("best_model_epoch", best_epoch_so_far)
 
             if best_model_path and best_model_path.exists():
                 logger.info(f"Logging best model checkpoint artifact: {best_model_path.name}")
@@ -288,40 +293,38 @@ def run_single_training_job(
             job_status = "FINISHED"
 
         elif engine_type == "ultralytics":
-            logger.error(f"Attempted to use Ultralytics engine, but it's not configured or supported in this setup.")
+            logger.error(f"Attempted to use Ultralytics engine.")
             job_status = "FAILED"
 
         else:
-            logger.error(f"Unknown engine type: '{engine_type}' specified in training config.")
+            logger.error(f"Unknown engine type: '{engine_type}'.")
             job_status = "FAILED"
 
     except KeyboardInterrupt:
-        logger.warning(f"[{run_name_tag}] Training job interrupted by user.")
+        logger.warning(f"[{run_name_tag}] Training job interrupted.")
         job_status = "KILLED"
         if mlflow.active_run(): mlflow.set_tag("run_outcome", "Killed by user")
         raise
 
     except Exception as e:
-        logger.critical(f"[{run_name_tag}] An uncaught error occurred during the training job: {e}", exc_info=True)
+        logger.critical(f"[{run_name_tag}] Uncaught error: {e}", exc_info=True)
         job_status = "FAILED"
         if mlflow.active_run():
             mlflow.set_tag("run_outcome", "Crashed")
             try:
-                error_log_content = f"Error Type: {type(e).__name__}\nError Message: {e}\n\nTraceback:\n{traceback.format_exc()}"
+                error_log_content = f"Error: {type(e).__name__}\n{e}\n{traceback.format_exc()}"
                 mlflow.log_text(error_log_content, "error_log.txt")
             except Exception as log_err:
-                logger.error(f"Failed to log training error details to MLflow: {log_err}")
+                logger.error(f"Failed to log error details: {log_err}")
 
     finally:
-        logger.info(f"--- Finished Single Training Job: {run_name_tag} (Attempted Status: {job_status}) ---")
+        logger.info(f"--- Finished Single Training Job: {run_name_tag} (Status: {job_status}) ---")
         try:
             import shutil
-            # Also need to import numpy for the NaN check in the loop
-            import numpy as np
             if run_artifact_dir.exists():
                 shutil.rmtree(run_artifact_dir)
-                logger.debug(f"Cleaned up temporary artifact directory: {run_artifact_dir}")
+                logger.debug(f"Cleaned up temp artifact dir: {run_artifact_dir}")
         except Exception as cleanup_err:
-            logger.warning(f"Could not cleanup temporary artifact directory {run_artifact_dir}: {cleanup_err}")
+            logger.warning(f"Could not cleanup temp dir {run_artifact_dir}: {cleanup_err}")
 
     return job_status, final_metrics
