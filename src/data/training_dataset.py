@@ -1,6 +1,8 @@
-# ================================================
-# FILE: src/data/training_dataset.py (MODIFIED)
-# ================================================
+"""
+This file contains the dataset class for the MTMMC dataset.
+It is used to load the data for the training and validation sets.
+"""
+
 import logging
 import random
 from pathlib import Path
@@ -9,13 +11,11 @@ from typing import List, Tuple, Dict, Any, Optional, Callable, Set
 import cv2
 import numpy as np
 import torch
-# --- MODIFICATION: Import tv_tensors ---
 from torchvision import tv_tensors
-# --------------------------------------
 from torch.utils.data import Dataset
-from torchvision.transforms import v2 as T  # Use v2 transforms
+from torchvision.transforms import v2 as T
 
-from src.data.loader import sorted_alphanumeric  # Reuse sorting utility
+from src.data.loader import sorted_alphanumeric
 
 logger = logging.getLogger(__name__)
 
@@ -35,10 +35,10 @@ class MTMMCDetectionDataset(Dataset):
     """
 
     def __init__(
-            self,
-            config: Dict[str, Any],
-            mode: str = "train",
-            transforms: Optional[Callable] = None,
+        self,
+        config: Dict[str, Any],
+        mode: str = "train",
+        transforms: Optional[Callable] = None,
     ):
         """
         Initializes the dataset.
@@ -62,11 +62,11 @@ class MTMMCDetectionDataset(Dataset):
 
         # Stores tuples of (image_path, annotation_list)
         self.data_samples: List[Tuple[Path, FrameAnnotations]] = []
-        self._load_data_samples()  # Load from all specified scenes/cameras
+        self._load_data_samples()
 
         # --- Split Data ---
         self.samples_split: List[Tuple[Path, FrameAnnotations]] = []
-        self._prepare_split()  # Apply subsetting and train/val split
+        self._prepare_split()
 
         # --- Class Mapping ---
         # FasterRCNN needs background=0, person=1, ...
@@ -79,21 +79,28 @@ class MTMMCDetectionDataset(Dataset):
             f"Number of samples: {len(self.samples_split)}"
         )
         if len(self.samples_split) == 0:
-            logger.warning(f"'{self.mode}' split has 0 samples. Check config, data paths, and subset fraction.")
+            logger.warning(
+                f"'{self.mode}' split has 0 samples. Check config, data paths, and subset fraction."
+            )
 
-    def _load_annotations_for_camera(self, scene_path: Path, cam_id: str) -> Tuple[AnnotationMap, List[str]]:
+    def _load_annotations_for_camera(
+        self, scene_path: Path, cam_id: str
+    ) -> Tuple[AnnotationMap, List[str]]:
         """Loads annotations from gt.txt for a specific camera within a scene."""
         annotations: AnnotationMap = {}
         image_filenames: List[str] = []
 
         rgb_dir = scene_path / cam_id / "rgb"
         if not rgb_dir.is_dir():
-            logger.warning(f"RGB directory not found: {rgb_dir}. Skipping camera {cam_id}.")
+            logger.warning(
+                f"RGB directory not found: {rgb_dir}. Skipping camera {cam_id}."
+            )
             return {}, []
 
         try:
             filenames_unsorted = [
-                f.name for f in rgb_dir.iterdir()
+                f.name
+                for f in rgb_dir.iterdir()
                 if f.is_file() and f.suffix.lower() in [".jpg", ".jpeg", ".png", ".bmp"]
             ]
             image_filenames = sorted_alphanumeric(filenames_unsorted)
@@ -102,26 +109,33 @@ class MTMMCDetectionDataset(Dataset):
             return {}, []
 
         if not image_filenames:
-            logger.warning(f"No image files found in {rgb_dir}. Skipping camera {cam_id}.")
+            logger.warning(
+                f"No image files found in {rgb_dir}. Skipping camera {cam_id}."
+            )
             return {}, []
 
         # Load GT
         gt_file_path = scene_path / cam_id / "gt" / "gt.txt"
         if not gt_file_path.is_file():
-            logger.warning(f"Ground truth file not found: {gt_file_path}. Camera {cam_id} will have no GT boxes.")
-            for fname in image_filenames: annotations[fname] = []
+            logger.warning(
+                f"Ground truth file not found: {gt_file_path}. Camera {cam_id} will have no GT boxes."
+            )
+            for fname in image_filenames:
+                annotations[fname] = []
             return annotations, image_filenames
 
         frame_map = {i: fname for i, fname in enumerate(image_filenames)}
 
         try:
-            with open(gt_file_path, 'r') as f:
+            with open(gt_file_path, "r") as f:
                 for line in f:
-                    parts = line.strip().split(',')
-                    if len(parts) < 6: continue
+                    parts = line.strip().split(",")
+                    if len(parts) < 6:
+                        continue
                     try:
                         frame_idx_txt = int(parts[0])
-                        if frame_idx_txt not in frame_map: continue
+                        if frame_idx_txt not in frame_map:
+                            continue
 
                         filename = frame_map[frame_idx_txt]
                         obj_id = int(parts[1])
@@ -130,22 +144,29 @@ class MTMMCDetectionDataset(Dataset):
                         bb_width = float(parts[4])
                         bb_height = float(parts[5])
 
-                        if bb_width <= 0 or bb_height <= 0: continue
+                        if bb_width <= 0 or bb_height <= 0:
+                            continue
 
                         center_x = bb_left + bb_width / 2
                         center_y = bb_top + bb_height / 2
 
-                        if filename not in annotations: annotations[filename] = []
-                        annotations[filename].append((obj_id, center_x, center_y, bb_width, bb_height))
+                        if filename not in annotations:
+                            annotations[filename] = []
+                        annotations[filename].append(
+                            (obj_id, center_x, center_y, bb_width, bb_height)
+                        )
                     except ValueError:
-                        continue # Ignore lines with parsing errors
+                        continue
 
             # Ensure every image file has an entry in annotations, even if empty
             for fname in image_filenames:
-                if fname not in annotations: annotations[fname] = []
+                if fname not in annotations:
+                    annotations[fname] = []
 
         except Exception as e:
-            logger.error(f"Error reading ground truth file {gt_file_path}: {e}", exc_info=True)
+            logger.error(
+                f"Error reading ground truth file {gt_file_path}: {e}", exc_info=True
+            )
             # Ensure annotations dict exists but is empty for all files on error
             annotations = {fname: [] for fname in image_filenames}
 
@@ -154,7 +175,9 @@ class MTMMCDetectionDataset(Dataset):
     def _load_data_samples(self):
         """Loads image paths and annotations from all scenes/cameras specified in config."""
         self.data_samples = []
-        unique_image_paths: Set[Path] = set()  # Prevent duplicates if cameras overlap strangely
+        unique_image_paths: Set[Path] = (
+            set()
+        )  # Prevent duplicates if cameras overlap strangely
 
         for scene_info in self.scenes_to_include:
             scene_id = scene_info["scene_id"]
@@ -166,16 +189,22 @@ class MTMMCDetectionDataset(Dataset):
                 continue
 
             for cam_id in camera_ids:
-                cam_annotations, cam_filenames = self._load_annotations_for_camera(scene_path, cam_id)
+                cam_annotations, cam_filenames = self._load_annotations_for_camera(
+                    scene_path, cam_id
+                )
 
-                if not cam_filenames: continue
+                if not cam_filenames:
+                    continue
 
                 rgb_dir = scene_path / cam_id / "rgb"
                 for filename in cam_filenames:
                     img_path = rgb_dir / filename
-                    if img_path in unique_image_paths: continue  # Skip if already added
+                    if img_path in unique_image_paths:
+                        continue  # Skip if already added
 
-                    annotations = cam_annotations.get(filename, []) # Get potentially empty list
+                    annotations = cam_annotations.get(
+                        filename, []
+                    )  # Get potentially empty list
                     if img_path.is_file():
                         self.data_samples.append((img_path, annotations))
                         unique_image_paths.add(img_path)
@@ -183,10 +212,13 @@ class MTMMCDetectionDataset(Dataset):
                         logger.warning(f"Image file expected but not found: {img_path}")
 
         if not self.data_samples:
-            raise RuntimeError(f"No data samples could be loaded for the specified scenes/cameras.")
+            raise RuntimeError(
+                f"No data samples could be loaded for the specified scenes/cameras."
+            )
 
         logger.info(
-            f"Loaded {len(self.data_samples)} total unique samples (image path, annotations) before subsetting/splitting.")
+            f"Loaded {len(self.data_samples)} total unique samples (image path, annotations) before subsetting/splitting."
+        )
 
     def _prepare_split(self):
         """Applies subsetting (if enabled) and splits data into train/val."""
@@ -199,7 +231,8 @@ class MTMMCDetectionDataset(Dataset):
             if num_subset == 0 and num_total > 0:
                 num_subset = 1  # Ensure at least one sample if possible
             logger.info(
-                f"Applying data subset: Using {num_subset}/{num_total} samples ({self.data_subset_fraction * 100:.1f}%).")
+                f"Applying data subset: Using {num_subset}/{num_total} samples ({self.data_subset_fraction * 100:.1f}%)."
+            )
             # Shuffle before taking subset for better representation
             random.shuffle(working_samples)
             working_samples = working_samples[:num_subset]
@@ -221,7 +254,9 @@ class MTMMCDetectionDataset(Dataset):
             logger.info(f"Using {num_val} samples for validation split.")
 
         if not self.samples_split:
-            logger.warning(f"No samples available for the '{self.mode}' split after subsetting/splitting.")
+            logger.warning(
+                f"No samples available for the '{self.mode}' split after subsetting/splitting."
+            )
 
     def __len__(self) -> int:
         return len(self.samples_split)
@@ -232,45 +267,50 @@ class MTMMCDetectionDataset(Dataset):
         Handles cases where no ground truth annotations exist for a frame.
         """
         if idx >= len(self.samples_split):
-            raise IndexError(f"Index {idx} out of bounds for dataset split with length {len(self.samples_split)}")
+            raise IndexError(
+                f"Index {idx} out of bounds for dataset split with length {len(self.samples_split)}"
+            )
 
         img_path, annotations = self.samples_split[idx]
-        dummy_image_tensor = None # For error handling
+        dummy_image_tensor = None
 
         try:
             img_bytes = np.fromfile(str(img_path), dtype=np.uint8)
             image = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
-            if image is None: raise ValueError(f"Failed to decode image: {img_path}")
+            if image is None:
+                raise ValueError(f"Failed to decode image: {img_path}")
             image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             img_h, img_w = image.shape[:2]
 
         except Exception as e:
             logger.error(f"Error loading image {img_path}: {e}. Returning dummy data.")
-            img_h, img_w = 256, 256 # Dummy dimensions
-            # Create dummy tensors compatible with transforms (needs T.Image)
-            # Note: T.ToImage() inside transforms will handle numpy/PIL, but need a starting tensor/np array here
+            img_h, img_w = 256, 256
             dummy_image_np = np.zeros((img_h, img_w, 3), dtype=np.uint8)
-            dummy_image_container = T.ToImage()(dummy_image_np) # Use ToImage transform
+            dummy_image_container = T.ToImage()(dummy_image_np)
 
             dummy_boxes = tv_tensors.BoundingBoxes(
                 torch.zeros((0, 4), dtype=torch.float32),
                 format="XYXY",
-                canvas_size=(img_h, img_w)
+                canvas_size=(img_h, img_w),
             )
             dummy_target = {
                 "boxes": dummy_boxes,
-                "labels": torch.zeros(0, dtype=torch.int64)
+                "labels": torch.zeros(0, dtype=torch.int64),
             }
             # Apply transforms to dummy data to ensure consistent output types
             if self.transforms:
                 try:
-                    dummy_image_tensor, dummy_target = self.transforms(dummy_image_container, dummy_target)
+                    dummy_image_tensor, dummy_target = self.transforms(
+                        dummy_image_container, dummy_target
+                    )
                 except Exception as dummy_transform_err:
-                     logger.error(f"Error applying transforms even to dummy data: {dummy_transform_err}")
-                     # Fallback to basic tensor if transforms fail on dummy
-                     dummy_image_tensor = T.ToTensor()(dummy_image_np)
+                    logger.error(
+                        f"Error applying transforms even to dummy data: {dummy_transform_err}"
+                    )
+                    # Fallback to basic tensor if transforms fail on dummy
+                    dummy_image_tensor = T.ToTensor()(dummy_image_np)
             else:
-                 dummy_image_tensor = T.ToTensor()(dummy_image_np) # Basic tensor conversion
+                dummy_image_tensor = T.ToTensor()(dummy_image_np)
 
             return dummy_image_tensor, dummy_target
 
@@ -297,14 +337,9 @@ class MTMMCDetectionDataset(Dataset):
         if labels_tensor.nelement() == 0:
             labels_tensor = torch.zeros((0,), dtype=torch.int64)
 
-        # --- MODIFICATION: Wrap boxes in tv_tensors.BoundingBoxes ---
-        # This is crucial for transforms.v2 to work correctly, especially with empty boxes
         target_boxes = tv_tensors.BoundingBoxes(
-            boxes_tensor,
-            format="XYXY", # Bounding box format is XYXY
-            canvas_size=(img_h, img_w) # Provide image dimensions
+            boxes_tensor, format="XYXY", canvas_size=(img_h, img_w)
         )
-        # ----------------------------------------------------------
 
         target = {"boxes": target_boxes, "labels": labels_tensor}
 
@@ -314,45 +349,57 @@ class MTMMCDetectionDataset(Dataset):
         # Apply transforms
         if self.transforms:
             try:
-                image_transformed, target_transformed = self.transforms(image_container, target)
+                image_transformed, target_transformed = self.transforms(
+                    image_container, target
+                )
             except Exception as transform_err:
                 # This is where the "No bounding boxes found" error was happening
-                logger.error(f"Error applying transforms to {img_path}: {transform_err}", exc_info=True)
+                logger.error(
+                    f"Error applying transforms to {img_path}: {transform_err}",
+                    exc_info=True,
+                )
 
                 # Return consistent dummy data on transform error
-                img_h, img_w = 256, 256 # Dummy dimensions
+                img_h, img_w = 256, 256
                 dummy_image_np = np.zeros((img_h, img_w, 3), dtype=np.uint8)
-                # Transforms expect T.Image, so create it from numpy
                 dummy_image_container = T.ToImage()(dummy_image_np)
                 dummy_boxes = tv_tensors.BoundingBoxes(
                     torch.zeros((0, 4), dtype=torch.float32),
-                    format="XYXY", canvas_size=(img_h, img_w)
+                    format="XYXY",
+                    canvas_size=(img_h, img_w),
                 )
-                dummy_target = {"boxes": dummy_boxes, "labels": torch.zeros(0, dtype=torch.int64)}
+                dummy_target = {
+                    "boxes": dummy_boxes,
+                    "labels": torch.zeros(0, dtype=torch.int64),
+                }
 
                 # Try applying transforms again to the dummy data
                 try:
-                     dummy_image_tensor, dummy_target = self.transforms(dummy_image_container, dummy_target)
+                    dummy_image_tensor, dummy_target = self.transforms(
+                        dummy_image_container, dummy_target
+                    )
                 except Exception as dummy_transform_err_inner:
-                     logger.error(f"Error applying transforms even to dummy data (inner): {dummy_transform_err_inner}")
-                     # Fallback to basic tensor if transforms fail on dummy
-                     dummy_image_tensor = T.ToTensor()(dummy_image_np) # Use original numpy dummy
+                    logger.error(
+                        f"Error applying transforms even to dummy data (inner): {dummy_transform_err_inner}"
+                    )
+                    # Fallback to basic tensor if transforms fail on dummy
+                    dummy_image_tensor = T.ToTensor()(dummy_image_np)
 
-                return dummy_image_tensor, dummy_target # Return dummy data
+                return dummy_image_tensor, dummy_target
         else:
             # Fallback: Basic conversion without transforms if none provided
-            image_transformed = T.ToTensor()(image_container) # Convert T.Image back to Tensor if needed? or keep T.Image? Check model input req.
-            target_transformed = target # No target transforms applied
+            image_transformed = T.ToTensor()(image_container)
+            target_transformed = target
 
         # The model expects a Tensor for the image, not T.Image, so convert if needed
-        # However, some v2 models might accept T.Image directly. Assuming Tensor needed.
         if isinstance(image_transformed, tv_tensors.Image):
-             image_output = image_transformed.to(torch.float32) # Convert to tensor if it's still T.Image
+            image_output = image_transformed.to(torch.float32)
         elif isinstance(image_transformed, torch.Tensor):
-             image_output = image_transformed
+            image_output = image_transformed
         else:
-             logger.warning(f"Unexpected image type after transforms: {type(image_transformed)}. Attempting conversion.")
-             image_output = T.ToTensor()(image_transformed)
-
+            logger.warning(
+                f"Unexpected image type after transforms: {type(image_transformed)}. Attempting conversion."
+            )
+            image_output = T.ToTensor()(image_transformed)
 
         return image_output, target_transformed
