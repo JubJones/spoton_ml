@@ -1,6 +1,7 @@
 import logging
 import sys
 import time
+import traceback # Import traceback
 from typing import Dict, Any, List, Tuple
 import warnings
 from pathlib import Path
@@ -13,6 +14,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
+import cv2 # Import OpenCV
 
 # --- Project Setup ---
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -35,16 +37,13 @@ except ImportError as e:
 log_file = setup_logging(log_prefix="eda", log_dir=PROJECT_ROOT / "logs")
 logger = logging.getLogger(__name__)
 
-# --- Suppress Matplotlib/Seaborn Warnings ---
+# --- Suppress Warnings ---
 warnings.filterwarnings("ignore", category=UserWarning, module="matplotlib")
 warnings.filterwarnings("ignore", category=UserWarning, module="seaborn")
 warnings.filterwarnings("ignore", category=FutureWarning)
 
 
-# --- Analysis Functions ---
-
 def calculate_statistics(df_gt: pd.DataFrame, discovered_assets) -> Dict[str, Any]:
-    """Calculates various statistics from the ground truth DataFrame."""
     logger.info("Calculating EDA statistics...")
     stats = {}
 
@@ -121,7 +120,6 @@ def perform_quality_checks(
     sample_image_data: Dict[Tuple[str, str], List[Dict[str, Any]]],
     config: Dict[str, Any]
 ) -> Dict[str, Any]:
-    """Performs data quality checks and returns counts/summaries."""
     logger.info("Performing data quality checks...")
     quality_report = {}
 
@@ -223,7 +221,6 @@ def generate_plots(
     output_dir: Path,
     config: Dict[str, Any]
 ) -> List[Path]:
-    """Generates histogram plots for distributions."""
     logger.info(f"Generating distribution plots in {output_dir}...")
     output_dir.mkdir(parents=True, exist_ok=True)
     plot_paths = []
@@ -277,16 +274,18 @@ def generate_plots(
     logger.info(f"Generated {len(plot_paths)} plots.")
     return plot_paths
 
-
 def create_summary_report(
     stats: Dict[str, Any],
     quality_report: Dict[str, Any],
     config: Dict[str, Any],
-    output_dir: Path
+    output_dir: Path,
+    comparison_plots_generated: bool # Add flag
 ) -> Path:
     """Creates a text summary file of the EDA findings."""
     summary_path = output_dir / "eda_summary.txt"
     logger.info(f"Creating EDA summary report: {summary_path}")
+    vis_config = config.get('preprocessing_visualization', {})
+    vis_enabled = vis_config.get('enabled', False)
 
     with open(summary_path, 'w') as f:
         f.write("="*40 + "\n")
@@ -296,7 +295,6 @@ def create_summary_report(
         f.write("--- Configuration ---\n")
         f.write(f"Base Path: {config.get('base_path', 'N/A')}\n")
         f.write(f"Selection Strategy: {config.get('selection_strategy', 'N/A')}\n")
-        # Could add scene/camera list if strategy=='list'
         f.write("\n")
 
         f.write("--- Basic Statistics ---\n")
@@ -323,7 +321,6 @@ def create_summary_report(
         f.write(f"Frame Count Mismatches Found: {quality_report.get('qc_frame_count_mismatches_found', 'N/A')}\n")
         f.write(f"Annotations Out-Of-Bounds: {quality_report.get('qc_annotations_out_of_bounds', 'N/A')}\n")
         f.write(f"Image Dimension Inconsistencies: {quality_report.get('qc_image_dimension_inconsistencies_found', 'N/A')}\n")
-        # Optionally include details for mismatches/OOB/dims if needed
         f.write("\n")
 
         f.write("--- Preprocessing Outline (Conceptual) ---\n")
@@ -336,45 +333,203 @@ def create_summary_report(
         f.write("7. Format data into required structure (e.g., tensors, target dictionaries).\n")
         f.write("\n")
 
+        # Add note about visualization
+        f.write("--- Preprocessing Visualization ---\n")
+        if vis_enabled and comparison_plots_generated:
+             f.write("Raw vs. Preprocessed comparison plots were generated.\n")
+             f.write(f"Target Width: {vis_config.get('target_input_width', 'N/A')}\n")
+             f.write(f"Normalization Mean (RGB): {vis_config.get('normalization_mean', 'N/A')}\n")
+             f.write(f"Normalization Std (RGB): {vis_config.get('normalization_std', 'N/A')}\n")
+        elif vis_enabled:
+             f.write("Preprocessing visualization was enabled but no plots were generated (check sample size or errors).\n")
+        else:
+             f.write("Preprocessing visualization was disabled in the configuration.\n")
+        f.write("\n")
+
+
     logger.info("EDA summary report created successfully.")
     return summary_path
 
 
-def log_to_mlflow(stats, quality_report, plot_paths, summary_path, config_path):
-     """Logs EDA results to the active MLflow run."""
-     logger.info("Logging EDA results to MLflow...")
+# --- Preprocessing and Visualization Functions ---
 
-     # Log Config
-     try:
-          mlflow.log_artifact(config_path, artifact_path="config")
-     except Exception as e: logger.error(f"Failed to log config artifact: {e}")
+def preprocess_image_for_vis(
+    img_bgr: np.ndarray,
+    target_width: int,
+    norm_mean_rgb: List[float],
+    norm_std_rgb: List[float]
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Applies resizing, color conversion, and normalization.
+    Returns both the normalized image (e.g., for model input)
+    and an unnormalized version for visualization.
+    """
+    # 1. Resizing (maintaining aspect ratio)
+    h, w = img_bgr.shape[:2]
+    aspect_ratio = h / w
+    target_height = int(target_width * aspect_ratio)
+    resized_bgr = cv2.resize(img_bgr, (target_width, target_height), interpolation=cv2.INTER_LINEAR)
 
-     # Log Parameters (Counts)
-     params_to_log = [
-         'total_scenes', 'total_cameras', 'total_frame_indices_discovered',
-         'total_annotations', 'total_unique_obj_ids'
-     ]
-     for key in params_to_log:
-         if key in stats:
-             try: mlflow.log_param(key, stats[key])
-             except Exception as e: logger.warning(f"Failed to log param '{key}': {e}")
+    # 2. Color Conversion (BGR -> RGB)
+    img_rgb = cv2.cvtColor(resized_bgr, cv2.COLOR_BGR2RGB)
 
-     # Log Metrics (Statistics & Quality Checks)
-     metrics_to_log = {**stats, **quality_report}
-     for key, value in metrics_to_log.items():
-         if key not in params_to_log and isinstance(value, (int, float, np.number)):
-             try: mlflow.log_metric(key, float(value))
-             except Exception as e: logger.warning(f"Failed to log metric '{key}': {e}")
+    # 3. Normalization (to float, scale 0-1, then normalize)
+    img_float = img_rgb.astype(np.float32) / 255.0
+    mean = np.array(norm_mean_rgb, dtype=np.float32)
+    std = np.array(norm_std_rgb, dtype=np.float32)
+    normalized_img = (img_float - mean) / std
 
-     # Log Artifacts (Plots & Summary)
-     if plot_paths:
-          try: mlflow.log_artifacts(str(plot_paths[0].parent), artifact_path="eda_plots")
-          except Exception as e: logger.error(f"Failed to log plot artifacts: {e}")
-     if summary_path and summary_path.exists():
-          try: mlflow.log_artifact(str(summary_path), artifact_path="summary")
-          except Exception as e: logger.error(f"Failed to log summary artifact: {e}")
+    # 4. Un-normalize for visualization
+    unnormalized_img_float = (normalized_img * std) + mean
+    # Clip to [0, 1] and convert back to uint8 [0, 255]
+    unnormalized_img_vis = np.clip(unnormalized_img_float * 255.0, 0, 255).astype(np.uint8)
 
-     logger.info("MLflow logging complete.")
+    return normalized_img, unnormalized_img_vis
+
+def generate_preprocessing_comparison_plots(
+    sample_image_data: Dict[Tuple[str, str], List[Dict[str, Any]]],
+    vis_config: Dict[str, Any],
+    output_dir: Path
+) -> List[Path]:
+    """
+    Generates side-by-side plots comparing raw and preprocessed sample images.
+    """
+    logger.info(f"Generating preprocessing comparison plots in {output_dir}...")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plot_paths = []
+
+    target_width = vis_config.get('target_input_width', 640)
+    norm_mean = vis_config.get('normalization_mean', [0.485, 0.456, 0.406])
+    norm_std = vis_config.get('normalization_std', [0.229, 0.224, 0.225])
+    num_to_plot_per_cam = vis_config.get('num_comparison_plots_per_camera', 2)
+
+    total_samples_to_process = sum(min(num_to_plot_per_cam, len(samples))
+                                    for samples in sample_image_data.values())
+    pbar_vis = tqdm(total=total_samples_to_process, desc="Generating Vis Plots")
+
+    for (scene_id, cam_id), samples in sample_image_data.items():
+        count = 0
+        for sample_info in samples:
+            if count >= num_to_plot_per_cam:
+                break # Limit plots per camera
+
+            pbar_vis.set_postfix_str(f"{scene_id}/{cam_id} Sample {count+1}")
+            img_path = Path(sample_info['path'])
+            filename = img_path.name
+
+            try:
+                # Load raw BGR image
+                img_bytes = np.fromfile(str(img_path), dtype=np.uint8)
+                raw_bgr = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
+                if raw_bgr is None:
+                    logger.warning(f"[{scene_id}/{cam_id}] Failed to load image {filename} for comparison plot.")
+                    pbar_vis.update(1) # Update progress even on failure
+                    continue
+
+                # Preprocess
+                _, processed_vis = preprocess_image_for_vis(
+                    raw_bgr, target_width, norm_mean, norm_std
+                )
+
+                # Prepare raw image for display (BGR -> RGB)
+                raw_rgb_display = cv2.cvtColor(raw_bgr, cv2.COLOR_BGR2RGB)
+
+                # Create plot
+                fig, axs = plt.subplots(1, 2, figsize=(12, 6))
+                fig.suptitle(f"Preprocessing Comparison: {scene_id}/{cam_id}/{filename}", fontsize=14)
+
+                axs[0].imshow(raw_rgb_display)
+                axs[0].set_title(f"Raw ({raw_rgb_display.shape[1]}x{raw_rgb_display.shape[0]})")
+                axs[0].axis('off')
+
+                axs[1].imshow(processed_vis)
+                axs[1].set_title(f"Processed Vis ({processed_vis.shape[1]}x{processed_vis.shape[0]})")
+                axs[1].axis('off')
+
+                plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # Adjust layout for suptitle
+
+                # Save plot
+                plot_filename = f"compare_{scene_id}_{cam_id}_{filename}.png"
+                filepath = output_dir / plot_filename
+                plt.savefig(filepath)
+                plot_paths.append(filepath)
+                plt.close(fig) # Close figure to free memory
+                count += 1
+                pbar_vis.update(1)
+
+            except Exception as e:
+                logger.error(f"Failed to generate comparison plot for {img_path}: {e}", exc_info=True)
+                pbar_vis.update(1) # Ensure progress bar updates even on error
+                if 'fig' in locals() and plt.fignum_exists(fig.number):
+                    plt.close(fig) # Attempt to close figure if error occurred mid-plot
+
+    pbar_vis.close()
+    logger.info(f"Generated {len(plot_paths)} preprocessing comparison plots.")
+    return plot_paths
+
+
+# --- MLflow Logging Function ---
+def log_to_mlflow(
+    stats: Dict[str, Any],
+    quality_report: Dict[str, Any],
+    dist_plot_paths: List[Path],
+    comparison_plot_paths: List[Path], # Add comparison plots
+    summary_path: Path,
+    config_path: str
+):
+    """Logs EDA results to the active MLflow run."""
+    logger.info("Logging EDA results to MLflow...")
+
+    # --- Log Config
+    try:
+        mlflow.log_artifact(config_path, artifact_path="config")
+    except Exception as e: logger.error(f"Failed to log config artifact: {e}")
+
+    # Log Parameters (Counts)
+    params_to_log = [
+        'total_scenes', 'total_cameras', 'total_frame_indices_discovered',
+        'total_annotations', 'total_unique_obj_ids'
+    ]
+    for key in params_to_log:
+        if key in stats:
+            try: mlflow.log_param(key, stats[key])
+            except Exception as e: logger.warning(f"Failed to log param '{key}': {e}")
+
+    # Log Metrics (Statistics & Quality Checks)
+    metrics_to_log = {**stats, **quality_report}
+    for key, value in metrics_to_log.items():
+        if key not in params_to_log and isinstance(value, (int, float, np.number)):
+            try: mlflow.log_metric(key, float(value))
+            except Exception as e: logger.warning(f"Failed to log metric '{key}': {e}")
+
+    # --- Log Artifacts ---
+    # Log Distribution Plots
+    if dist_plot_paths:
+        dist_plot_dir = dist_plot_paths[0].parent
+        try:
+            mlflow.log_artifacts(str(dist_plot_dir), artifact_path="eda_plots/distributions")
+            logger.info(f"Logged {len(dist_plot_paths)} distribution plots.")
+        except Exception as e:
+            logger.error(f"Failed to log distribution plot artifacts from {dist_plot_dir}: {e}")
+
+    # Log Comparison Plots
+    if comparison_plot_paths:
+        comp_plot_dir = comparison_plot_paths[0].parent
+        try:
+            mlflow.log_artifacts(str(comp_plot_dir), artifact_path="eda_plots/preprocessing_comparison")
+            logger.info(f"Logged {len(comparison_plot_paths)} comparison plots.")
+        except Exception as e:
+            logger.error(f"Failed to log comparison plot artifacts from {comp_plot_dir}: {e}")
+
+    # Log Summary Report
+    if summary_path and summary_path.exists():
+        try:
+            mlflow.log_artifact(str(summary_path), artifact_path="summary")
+            logger.info(f"Logged summary report artifact.")
+        except Exception as e:
+            logger.error(f"Failed to log summary artifact: {e}")
+
+    logger.info("MLflow logging complete.")
 
 
 # --- Main Execution ---
@@ -395,6 +550,10 @@ def main():
         config_path_abs = (PROJECT_ROOT / config_path_str).resolve()
 
         temp_output_dir = PROJECT_ROOT / config.get("output_dir", "eda_artifacts_temp")
+        # Clean up existing temp dir if it exists
+        if temp_output_dir.exists():
+            logger.warning(f"Removing existing temporary output directory: {temp_output_dir}")
+            shutil.rmtree(temp_output_dir)
         temp_output_dir.mkdir(parents=True, exist_ok=True)
         logger.info(f"Using temporary output directory: {temp_output_dir}")
 
@@ -403,8 +562,8 @@ def main():
         if not experiment_id:
             logger.critical("MLflow experiment setup failed. Exiting.")
             sys.exit(1)
-
         run_name = f"{config.get('mlflow', {}).get('run_name_prefix', 'eda_run')}_{time.strftime('%Y%m%d_%H%M%S')}"
+
 
         # 3. Start MLflow Run
         with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
@@ -412,9 +571,9 @@ def main():
             logger.info(f"--- MLflow Run Started ---")
             logger.info(f"Run Name: {run_name}")
             logger.info(f"Run ID: {run_id}")
-            log_git_info() # Log git info if available
+            log_git_info()
 
-            # 4. Data Discovery
+            # --- Steps 4-6: Data Discovery, Load GT, Load Sample Metadata ---
             logger.info("--- Step 1: Discovering Data Assets ---")
             discovered_assets = discover_data_assets(
                 base_path=Path(config['base_path']),
@@ -424,45 +583,68 @@ def main():
             if not discovered_assets:
                  raise RuntimeError("Data discovery yielded no valid scenes/cameras. Check config and paths.")
 
-            # 5. Load Ground Truth
             logger.info("--- Step 2: Loading Ground Truth Data ---")
             df_gt, max_gt_frames = load_all_ground_truth(discovered_assets)
-            # Add max frame index info to discovered_assets (it's computed anyway)
             for (scene, cam), max_f in max_gt_frames.items():
                 if scene in discovered_assets and cam in discovered_assets[scene]:
                      discovered_assets[scene][cam]['frame_count_gt_actual_max'] = max_f
 
-            # 6. Load Sample Image Data
-            logger.info("--- Step 3: Loading Sample Image Data ---")
+            logger.info("--- Step 3: Loading Sample Image Data (Metadata) ---")
             sample_image_data = load_sample_image_data(
                 discovered_assets,
                 config.get('image_sample_size_per_camera', 5)
             )
 
-            # 7. Calculate Statistics
+            # --- Steps 7-9: Calculate Stats, Quality Checks, Generate Dist Plots ---
             logger.info("--- Step 4: Calculating Statistics ---")
             stats = calculate_statistics(df_gt, discovered_assets)
 
-            # 8. Perform Quality Checks
             logger.info("--- Step 5: Performing Quality Checks ---")
             quality_report = perform_quality_checks(df_gt, discovered_assets, sample_image_data, config)
 
-            # 9. Generate Plots
-            logger.info("--- Step 6: Generating Plots ---")
-            plot_paths = generate_plots(df_gt, stats, temp_output_dir, config)
+            logger.info("--- Step 6: Generating Distribution Plots ---")
+            dist_plot_paths = generate_plots(df_gt, stats, temp_output_dir, config)
 
-            # 10. Create Summary Report
-            logger.info("--- Step 7: Creating Summary Report ---")
-            summary_path = create_summary_report(stats, quality_report, config, temp_output_dir)
 
-            # 11. Log Results to MLflow
-            logger.info("--- Step 8: Logging Results to MLflow ---")
-            log_to_mlflow(stats, quality_report, plot_paths, summary_path, str(config_path_abs))
+            # --- Step 7: Generate Preprocessing Comparison Plots ---
+            comparison_plot_paths = []
+            vis_config = config.get('preprocessing_visualization', {})
+            vis_enabled = vis_config.get('enabled', False)
+            if vis_enabled:
+                logger.info("--- Step 7: Generating Preprocessing Comparison Plots ---")
+                comparison_plot_paths = generate_preprocessing_comparison_plots(
+                    sample_image_data,
+                    vis_config,
+                    temp_output_dir
+                )
+            else:
+                logger.info("--- Step 7: Skipping Preprocessing Comparison Plots (Disabled in config) ---")
+
+
+            # --- Step 8: Create Summary Report (Adjusted Step Number) ---
+            logger.info("--- Step 8: Creating Summary Report ---")
+            # Pass flag indicating if comparison plots were actually generated
+            summary_path = create_summary_report(
+                stats, quality_report, config, temp_output_dir,
+                comparison_plots_generated=(len(comparison_plot_paths) > 0)
+            )
+
+            # --- Step 9: Log Results to MLflow (Adjusted Step Number) ---
+            logger.info("--- Step 9: Logging Results to MLflow ---")
+            log_to_mlflow(
+                stats,
+                quality_report,
+                dist_plot_paths,
+                comparison_plot_paths, # Pass comparison plot paths
+                summary_path,
+                str(config_path_abs)
+            )
 
             final_status = "FINISHED"
             mlflow.set_tag("run_outcome", "Success")
 
     except KeyboardInterrupt:
+        # ... (Interrupt handling unchanged) ...
         logger.warning("EDA run interrupted by user (KeyboardInterrupt).")
         final_status = "KILLED"
         if run_id and mlflow.active_run() and mlflow.active_run().info.run_id == run_id:
@@ -472,6 +654,7 @@ def main():
             try: mlflow.tracking.MlflowClient().set_terminated(run_id, status=final_status)
             except Exception: logger.warning(f"Could not terminate run {run_id} externally.")
     except Exception as e:
+        # ... (Error handling unchanged) ...
         logger.critical(f"An uncaught error occurred during the EDA run: {e}", exc_info=True)
         final_status = "FAILED"
         if run_id and mlflow.active_run() and mlflow.active_run().info.run_id == run_id:
@@ -485,7 +668,6 @@ def main():
                  client.set_tag(run_id, "run_outcome", "Crashed")
                  client.set_terminated(run_id, status=final_status)
              except Exception: logger.warning(f"Could not terminate run {run_id} externally after crash.")
-
     finally:
         logger.info(f"--- Finalizing EDA Run (Final Status: {final_status}) ---")
         # Log the main script log file to the run if it exists
@@ -511,13 +693,16 @@ def main():
             except Exception as term_err:
                 logger.error(f"Failed to terminate run {run_id} forcefully: {term_err}")
 
-        # Clean up temporary directory
-        if temp_output_dir and temp_output_dir.exists():
+        # Clean up temporary directory ONLY IF THE RUN WAS SUCCESSFUL
+        # Keep artifacts for debugging if failed/killed
+        if final_status == "FINISHED" and temp_output_dir and temp_output_dir.exists():
              try:
                  shutil.rmtree(temp_output_dir)
                  logger.info(f"Cleaned up temporary output directory: {temp_output_dir}")
              except Exception as e:
                  logger.warning(f"Failed to clean up temporary output directory {temp_output_dir}: {e}")
+        elif temp_output_dir and temp_output_dir.exists():
+            logger.warning(f"Run status was '{final_status}'. Preserving temporary artifacts in {temp_output_dir}")
 
 
     logger.info(f"--- EDA Run Completed (Status: {final_status}) ---")
@@ -525,4 +710,7 @@ def main():
 
 
 if __name__ == "__main__":
+    # Ensure matplotlib backend is suitable for non-interactive use if needed
+    import matplotlib
+    matplotlib.use('Agg') # Use Agg backend which doesn't require a GUI
     main()
