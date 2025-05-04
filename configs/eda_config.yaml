@@ -1,4 +1,3 @@
-
 # --- Data Source ---
 base_path: "D:/MTMMC" # Adjust to your MTMMC dataset location
 # base_path: "/Volumes/HDD/MTMMC"
@@ -16,7 +15,7 @@ scenes_to_analyze:
     camera_ids: ["c01", "c02", "c03", "c05"]
 
 # --- Analysis Parameters ---
-image_sample_size_per_camera: 10
+image_sample_size_per_camera: 2 # Keep low for faster testing of visualization
 plot_hist_bins: 50
 
 # --- Output ---
@@ -31,3 +30,12 @@ mlflow:
 # --- Quality Check Parameters ---
 frame_count_mismatch_threshold: 5 # Warn if jpg count vs gt max frame differs by more than this
 bbox_boundary_margin: 5 # Pixels outside boundary allowed before warning for out-of-bounds check
+
+# --- Preprocessing Visualization ---
+preprocessing_visualization:
+  enabled: true                 # Set to true to generate comparison plots
+  target_input_width: 640      # Target width for resizing (height maintains aspect ratio)
+  # Default ImageNet normalization values
+  normalization_mean: [0.485, 0.456, 0.406] # RGB order
+  normalization_std: [0.229, 0.224, 0.225]  # RGB order
+  num_comparison_plots_per_camera: 2 # Limit plots per camera to avoid too many files
