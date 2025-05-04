@@ -22,3 +22,6 @@ pandas
 pillow
 scipy
 motmetrics
+
+# Testing
+pytest
