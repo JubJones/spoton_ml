@@ -1,0 +1,33 @@
+
+# --- Data Source ---
+base_path: "D:/MTMMC" # Adjust to your MTMMC dataset location
+# base_path: "/Volumes/HDD/MTMMC"
+
+# --- Scene/Camera Selection ---
+# strategy: 'all' to analyze all found scenes/cameras
+# strategy: 'list' to analyze only those specified below
+selection_strategy: 'list' # Options: 'all', 'list'
+
+# Used only if selection_strategy is 'list'
+scenes_to_analyze:
+  - scene_id: "s10" # Factory
+    camera_ids: ["c09", "c12", "c13", "c16"]
+  - scene_id: "s47" # Campus
+    camera_ids: ["c01", "c02", "c03", "c05"]
+
+# --- Analysis Parameters ---
+image_sample_size_per_camera: 10
+plot_hist_bins: 50
+
+# --- Output ---
+# Directory for temporary artifacts (plots, etc.) before logging to MLflow
+output_dir: "eda_artifacts_temp"
+
+# --- MLflow Configuration ---
+mlflow:
+  experiment_name: "MTMMC Dataset EDA"
+  run_name_prefix: "eda_run"
+
+# --- Quality Check Parameters ---
+frame_count_mismatch_threshold: 5 # Warn if jpg count vs gt max frame differs by more than this
+bbox_boundary_margin: 5 # Pixels outside boundary allowed before warning for out-of-bounds check
