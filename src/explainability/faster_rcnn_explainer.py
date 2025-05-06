@@ -1,3 +1,4 @@
+# FILE: src/explainability/faster_rcnn_explainer.py
 import logging
 from typing import Optional
 
@@ -41,7 +42,7 @@ def get_target_layer(model: FasterRCNN, layer_name_str: str) -> Optional[nn.Modu
 
 def explain_detection_gradcam(
     model: FasterRCNN,
-    input_tensor: torch.Tensor,
+    input_tensor: torch.Tensor, # This is the original 3D tensor [C, H, W]
     target_layer: nn.Module,
     target_index: int,
     target_class_index: int,
@@ -52,7 +53,7 @@ def explain_detection_gradcam(
 
     Args:
         model: The FasterRCNN model (must be on the correct device).
-        input_tensor: The preprocessed input image tensor (must be on the correct device).
+        input_tensor: The preprocessed input image tensor ([C, H, W], must be on the correct device).
         target_layer: The convolutional layer to compute Grad-CAM for.
         target_index: The index of the detection box in the model's output list
                       (from the single-image inference result) to explain.
@@ -70,54 +71,80 @@ def explain_detection_gradcam(
         logger.error("Invalid target_layer provided.")
         return None
 
+    if input_tensor.dim() != 3:
+         logger.error(f"Input tensor for Grad-CAM must be 3D [C, H, W], but got shape {input_tensor.shape}")
+         return None
+
     model.eval() # Ensure model is in eval mode
 
     # --- Define a Forward Function for Captum ---
-    def detection_forward_func(inputs: torch.Tensor) -> torch.Tensor:
+    def detection_forward_func(batched_inputs: torch.Tensor) -> torch.Tensor:
         """
         Wrapper function for Captum. Runs model inference and extracts the
         classification score for the target detection box and class.
+        'batched_inputs' here is expected to have a batch dimension [B, C, H, W] (added by Captum).
+        Returns a 1D tensor containing the target score(s).
         """
         with torch.enable_grad(): # Ensure gradients are enabled for captum
-             # Model expects a list of tensors, even for a single image
-             model_input = [inputs]
-             # Run model inference
-             outputs = model(model_input)
+            if batched_inputs.dim() == 4 and batched_inputs.shape[0] == 1:
+                model_input_list = [batched_inputs.squeeze(0)] # Create list with the single 3D tensor
+            elif batched_inputs.dim() == 3:
+                model_input_list = [batched_inputs]
+            else:
+                logger.error(f"Unexpected input dimension ({batched_inputs.dim()}) in detection_forward_func. Expected 4.")
+                # Return a dummy 1-element tensor on error
+                return torch.tensor([0.0], device=batched_inputs.device)
 
-        # Extract the score for the specific detection and target class
+            outputs = model(model_input_list)
+
         if outputs and isinstance(outputs, list) and isinstance(outputs[0], dict):
             pred = outputs[0]
-            if target_index < len(pred['scores']):
+            if 'scores' in pred and target_index < len(pred['scores']):
                 target_score = pred['scores'][target_index]
-                return target_score
+                # --- MODIFICATION: Ensure output is at least 1D ---
+                if target_score.dim() == 0:
+                    return target_score.unsqueeze(0) # Return as [1] tensor
+                else:
+                    # Should not happen for a single score, but handle defensively
+                    return target_score
+                # --- END MODIFICATION ---
             else:
-                logger.warning(f"Target index {target_index} out of bounds for scores (len={len(pred['scores'])}). Returning zero.")
-                return torch.tensor(0.0, device=inputs.device) # Return zero scalar on error
+                score_len = len(pred.get('scores',[]))
+                logger.warning(f"Target index {target_index} out of bounds for scores (len={score_len}) or 'scores' key missing. Returning zero.")
+                # Return a dummy 1-element tensor on error
+                return torch.tensor([0.0], device=batched_inputs.device)
         else:
              logger.error(f"Unexpected model output format during captum forward: {type(outputs)}. Returning zero.")
-             return torch.tensor(0.0, device=inputs.device) # Return zero scalar on error
+             # Return a dummy 1-element tensor on error
+             return torch.tensor([0.0], device=batched_inputs.device)
 
 
     # --- Initialize and Run Grad-CAM ---
     try:
         layer_gc = LayerGradCam(detection_forward_func, target_layer)
 
-        # Add batch dimension if needed (Captum expects batch)
-        input_batch = input_tensor.unsqueeze(0) if input_tensor.dim() == 3 else input_tensor
-        input_batch = input_batch.to(device) # Ensure on correct device
+        input_batch = input_tensor.unsqueeze(0)
+        input_batch = input_batch.to(device)
 
         # Calculate attributions
+        # Target=None should work now because the forward function returns a tensor
+        # that (implicitly, by selection within the function) represents the target score.
+        # Captum's default behavior for target=None with a single-output tensor from forward_func
+        # is usually to attribute to that single output.
         attributions = layer_gc.attribute(
             input_batch,
-            target=None, # Target is implicitly defined by detection_forward_func
-            relu_attributions=True # Apply ReLU for positive attributions
+            target=None, # Keep target=None for now
+            relu_attributions=True
         )
 
-        # Remove batch dimension and move to CPU
         heatmap = attributions.squeeze(0).cpu().detach()
         logger.info(f"Grad-CAM attribution generated for target_index {target_index}, class {target_class_index}.")
         return heatmap
 
+    except IndexError as ie:
+         # Catch the specific error if it persists
+         logger.error(f"IndexError during Grad-CAM (likely 0-dim tensor issue persisted): {ie}", exc_info=True)
+         return None
     except Exception as e:
         logger.error(f"Error generating Grad-CAM: {e}", exc_info=True)
         return None
