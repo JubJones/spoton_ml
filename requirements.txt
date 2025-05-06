@@ -1,3 +1,9 @@
+# Explainability
+captum
+
+# Visualization (often used with explainability)
+matplotlib
+
 # MLOps & Core
 mlflow
 dagshub
