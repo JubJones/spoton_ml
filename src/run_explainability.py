@@ -30,7 +30,9 @@ try:
     from src.utils.mlflow_utils import setup_mlflow_experiment
     from src.core.runner import log_params_recursive, log_git_info
     from src.inference.detector import load_trained_fasterrcnn, infer_single_image
+    # --- MODIFICATION: Import get_transform directly ---
     from src.training.runner import get_transform
+    # --- END MODIFICATION ---
     from src.explainability import (
         explain_detection_gradcam,
         visualize_explanation,
@@ -48,6 +50,7 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 # --- Main Execution Function (Orchestrator) ---
+# (No changes needed in the main orchestrator function `main`)
 def main():
     """Main execution function for the explainability runner."""
     config_path_str = "configs/explainability_config.yaml"
@@ -116,7 +119,7 @@ def main():
                     device=device,
                     output_dir=output_dir,
                     reasoning_log_path=reasoning_log_path,
-                    mlflow_run_id=run_id
+                    mlflow_run_id=run_id # Pass run_id to execute_explainability
                 )
                 if metrics: mlflow.log_metrics(metrics)
                 mlflow.set_tag("run_outcome", final_status)
@@ -126,12 +129,12 @@ def main():
                  device=device,
                  output_dir=output_dir,
                  reasoning_log_path=reasoning_log_path,
-                 mlflow_run_id=None
+                 mlflow_run_id=None # Pass None if no MLflow logging
              )
              if metrics: logger.info(f"Execution Metrics: {metrics}")
 
         if not success and final_status == "FINISHED":
-             final_status = "FAILED"
+             final_status = "FAILED" # Downgrade status if execution didn't succeed
 
     except KeyboardInterrupt:
         logger.warning("Explainability run interrupted by user.")
@@ -173,10 +176,12 @@ def main():
             except Exception as log_err:
                 logger.warning(f"Could not log script log artifact '{log_file.name}': {log_err}")
 
+        # Ensure run termination status is set correctly
         active_run_obj = mlflow.active_run()
         if active_run_obj and active_run_obj.info.run_id == run_id:
+             logger.info(f"Ensuring MLflow run {run_id} is terminated with status {final_status}.")
              mlflow.end_run(status=final_status)
-        elif run_id:
+        elif run_id: # If run exists but isn't active (e.g., due to error outside context)
              try:
                  client = MlflowClient()
                  current_run_info = client.get_run(run_id)
@@ -198,13 +203,12 @@ def execute_explainability(
     device: torch.device,
     output_dir: Path,
     reasoning_log_path: Path,
-    mlflow_run_id: Optional[str] = None
+    mlflow_run_id: Optional[str] = None # Accept run_id
 ) -> Tuple[bool, str, Dict[str, Any]]:
     """
     Core logic for loading model, running inference, and generating explanations.
     Logs artifacts and metrics to MLflow if mlflow_run_id is provided.
     """
-    # ... (initial setup, parameter extraction, model loading, etc. remain the same) ...
     model_config = config.get("model", {})
     images_to_explain = config.get("images_to_explain", [])
     exp_config = config.get("explainability", {})
@@ -218,8 +222,10 @@ def execute_explainability(
     }
 
     target_layer_name = exp_config.get("target_layer_name")
-    person_class_index = model_config.get("person_class_id", 1)
+    # --- MODIFIED: Use person_class_id from explainability section if present, else model, default 1 ---
+    person_class_index = exp_config.get("person_class_index", model_config.get("person_class_id", 1))
     logger.info(f"Using person_class_index: {person_class_index} for explainability target")
+    # --- END MODIFICATION ---
     conf_thresh = exp_config.get("confidence_threshold_for_explanation", 0.6)
     top_n = exp_config.get("top_n_to_explain", 3)
     method = exp_config.get("method", "gradcam").lower()
@@ -231,27 +237,47 @@ def execute_explainability(
         colormap_int = cv2.COLORMAP_JET
 
     # --- Input Validation ---
-    if not images_to_explain: logger.error("..."); return False, "FAILED", metrics
+    if not images_to_explain:
+        logger.error("'images_to_explain' list is empty in config.")
+        return False, "FAILED", metrics
     checkpoint_path = model_config.get("checkpoint_path")
-    if not checkpoint_path: logger.error("..."); return False, "FAILED", metrics
+    if not checkpoint_path:
+        logger.error("Missing 'model.checkpoint_path' in config.")
+        return False, "FAILED", metrics
     num_classes = model_config.get("num_classes")
-    if not num_classes: logger.error("..."); return False, "FAILED", metrics
-    if method not in SUPPORTED_METHODS: logger.error("..."); return False, "FAILED", metrics
-    if not target_layer_name and method == "gradcam": logger.error("..."); return False, "FAILED", metrics
+    if not num_classes:
+        logger.error("Missing 'model.num_classes' in config.")
+        return False, "FAILED", metrics
+    if method not in SUPPORTED_METHODS:
+        logger.error(f"Unsupported explainability method: '{method}'. Supported: {SUPPORTED_METHODS}")
+        return False, "FAILED", metrics
+    if not target_layer_name and method == "gradcam":
+        logger.error("Missing 'explainability.target_layer_name' required for Grad-CAM.")
+        return False, "FAILED", metrics
 
     # --- Load Model ---
     try:
-        model = load_trained_fasterrcnn( checkpoint_path, device, num_classes, model_config.get('trainable_backbone_layers', 3), mlflow_run_id)
-    except Exception as e: logger.critical(f"..."); return False, "FAILED", metrics
+        model = load_trained_fasterrcnn(
+            checkpoint_path,
+            device,
+            num_classes,
+            model_config.get('trainable_backbone_layers', 3),
+            mlflow_run_id # Pass current run_id for artifact resolution
+        )
+    except Exception as e:
+        logger.critical(f"Failed to load FasterRCNN model from {checkpoint_path}: {e}", exc_info=True)
+        return False, "FAILED", metrics
 
     # --- Get Target Layer ---
     target_layer = None
     if method == "gradcam":
         target_layer = get_target_layer(model, target_layer_name)
-        if target_layer is None: return False, "FAILED", metrics
+        if target_layer is None:
+            return False, "FAILED", metrics # Error logged in get_target_layer
 
     # --- Get Transforms ---
-    dummy_run_config_for_transform = {'data': config.get('data', {})}
+    # Create a dummy config containing only the relevant 'data' part for transforms
+    dummy_run_config_for_transform = {'data': config.get('data', {})} # Pass data section if present
     transforms = get_transform(train=False, config=dummy_run_config_for_transform)
 
     # --- Process Images ---
@@ -259,26 +285,51 @@ def execute_explainability(
 
     for image_path_str in images_to_explain:
         image_path = Path(image_path_str)
-        image_name = image_path.stem
-        logger.info(f"\n--- Processing Image: {image_path.name} ---")
+        logger.info(f"\n--- Processing Image: {image_path_str} ---")
 
         if not image_path.is_absolute():
+            # Try resolving relative to project root
             image_path = (PROJECT_ROOT / image_path).resolve()
-        if not image_path.exists():
-            logger.error(f"..."); metrics["images_failed_count"] += 1; all_reasoning_texts.append("..."); continue
 
-        detections, original_image_rgb, input_tensor = infer_single_image( model, image_path, transforms, device, conf_thresh, person_class_index)
+        if not image_path.exists():
+            logger.error(f"Image file not found: {image_path}")
+            metrics["images_failed_count"] += 1
+            all_reasoning_texts.append(f"--- Image: {image_path_str} (Error: Not Found) ---")
+            continue
+
+        # --- MODIFICATION: Create unique base name for outputs ---
+        try:
+            image_stem = image_path.stem
+            # Assuming path structure like .../scene_id/camera_id/rgb/image.jpg
+            camera_id = image_path.parent.parent.name
+            scene_id = image_path.parent.parent.parent.name
+            unique_base_name = f"{scene_id}_{camera_id}_{image_stem}"
+            logger.debug(f"Using unique base name for outputs: {unique_base_name}")
+        except Exception as path_parse_err:
+            logger.warning(f"Could not parse scene/camera from path '{image_path}'. Using stem only. Error: {path_parse_err}")
+            unique_base_name = image_path.stem # Fallback
+        # --- END MODIFICATION ---
+
+        detections, original_image_rgb, input_tensor = infer_single_image(
+            model, image_path, transforms, device, conf_thresh, person_class_index
+        )
 
         if detections is None or original_image_rgb is None or input_tensor is None:
-            logger.error(f"..."); metrics["images_failed_count"] += 1; all_reasoning_texts.append("..."); continue
+            logger.error(f"Failed to get valid inference results for {image_path.name}.")
+            metrics["images_failed_count"] += 1
+            all_reasoning_texts.append(f"--- Image: {image_path_str} (Error: Inference Failed) ---")
+            continue
 
         metrics["images_processed_count"] += 1
         all_reasoning_texts.append(f"--- Image: {image_path_str} ---")
 
-        all_boxes_in_image = [d['box'] for d in detections] # Still need this list
+        all_boxes_in_image = [d['box'] for d in detections]
 
         if not detections:
-            logger.warning(f"..."); all_reasoning_texts.append("..."); metrics["images_skipped_count"] +=1; continue
+            logger.warning(f"No detections above threshold found for {image_path.name}. Skipping explanation.")
+            all_reasoning_texts.append(" No detections found above threshold.")
+            metrics["images_skipped_count"] += 1
+            continue
 
         detections.sort(key=lambda d: d['score'], reverse=True)
         detections_to_explain = detections[:top_n]
@@ -287,7 +338,6 @@ def execute_explainability(
 
         for i, det in enumerate(detections_to_explain):
             logger.info(f"  Explaining detection {i+1}/{len(detections_to_explain)} (Score: {det['score']:.3f})...")
-            # det_box = det['box'] # No longer needed for highlighting
             det_score = det['score']
             det_label = det['label']
             attribution_map = None
@@ -295,54 +345,73 @@ def execute_explainability(
             has_visualization = False
 
             if method == "gradcam":
-                if target_layer is None: continue
+                if target_layer is None:
+                    logger.error("Grad-CAM requested but target layer is invalid. Skipping.")
+                    continue
+
+                # Find the original index of this detection in the unfiltered list
+                # This is crucial if detections were filtered by class *after* raw inference
                 original_index = -1
-                for orig_idx, orig_det in enumerate(detections):
-                    # Simple check - might need refinement if scores/boxes are very close
+                for orig_idx, orig_det in enumerate(detections): # Using filtered list is okay if class filter was applied *before* this loop
+                    # Check score and box similarity (might need adjustment for floating point)
                     if abs(orig_det['score'] - det_score) < 1e-5 and np.allclose(orig_det['box'], det['box'], atol=1e-2):
                          original_index = orig_idx
                          break
-                if original_index == -1: original_index = i
-                attribution_map = explain_detection_gradcam( model, input_tensor, target_layer, original_index, person_class_index, device )
+                if original_index == -1:
+                     logger.warning(f"Could not find exact match for detection {i+1} in original predictions. Using index {i} as fallback.")
+                     original_index = i # Fallback (use index within the top N)
+
+                # Run Grad-CAM
+                attribution_map = explain_detection_gradcam(
+                    model, input_tensor, target_layer, original_index, person_class_index, device
+                )
 
             if attribution_map is not None:
-                viz_filename = f"{image_name}_explain_{method}_det{i}_score{det_score:.2f}.png"
+                # --- MODIFICATION: Use unique_base_name for filename ---
+                viz_filename = f"{unique_base_name}_explain_{method}_det{i+1}_score{det_score:.2f}.png"
                 viz_path = output_dir / viz_filename
-                # --- MODIFICATION: Update visualize_explanation call ---
+                # --- END MODIFICATION ---
+
                 visualize_explanation(
                     original_image_rgb=original_image_rgb,
                     attribution_map=attribution_map,
                     output_path=viz_path,
-                    # box_to_highlight=None, # Removed
-                    boxes_to_draw=all_boxes_in_image, # Pass the full list here
+                    boxes_to_draw=all_boxes_in_image, # Draw all boxes
                     score=det_score, # Score of the detection being explained
                     label=det_label, # Label of the detection being explained
                     alpha=alpha,
                     colormap=colormap_int
                 )
-                # --- END MODIFICATION ---
                 has_visualization = True
                 metrics["visualizations_generated_count"] += 1
                 if mlflow_run_id:
-                    try: mlflow.log_artifact(str(viz_path), artifact_path=f"explanations/{image_name}"); logger.info("...")
-                    except Exception as mlflow_log_err: logger.warning(f"...")
+                    try:
+                        # --- MODIFICATION: Use unique base name for artifact path grouping ---
+                        mlflow_artifact_path = f"explanations/{scene_id}/{camera_id}/{unique_base_name}" # Group by scene/cam/image
+                        mlflow.log_artifact(str(viz_path), artifact_path=mlflow_artifact_path)
+                        logger.info(f"Logged visualization artifact to MLflow: {mlflow_artifact_path}/{viz_path.name}")
+                        # --- END MODIFICATION ---
+                    except Exception as mlflow_log_err:
+                        logger.warning(f"Failed to log explanation artifact to MLflow: {mlflow_log_err}", exc_info=False)
             else:
-                logger.warning(f"...")
+                logger.warning(f"Attribution map generation failed for detection {i+1}.")
 
             reasoning_text = generate_reasoning_text(det, f"{method.upper()} Focus", has_visualization)
-            det_box_coords = det['box'] # Get box coords for logging text
+            det_box_coords = det['box']
             log_entry = (
                 f" Detection {i+1}:"
-                f" Box=[{int(det_box_coords[0])},{int(det_box_coords[1])},{int(det_box_coords[2])},{int(det_box_coords[3])}]," # Log box coords
+                f" Box=[{int(det_box_coords[0])},{int(det_box_coords[1])},{int(det_box_coords[2])},{int(det_box_coords[3])}],"
                 f" Score={det_score:.4f}, Label={det_label}\n"
                 f"   Reasoning: {reasoning_text}\n"
             )
-            if viz_path: log_entry += f"   Visualization: {viz_path.relative_to(PROJECT_ROOT)}\n"
+            if viz_path:
+                # --- MODIFICATION: Include full path in log for clarity ---
+                log_entry += f"   Visualization: {viz_path.resolve()}\n"
+                # --- END MODIFICATION ---
             all_reasoning_texts.append(log_entry)
-            print(log_entry)
+            print(log_entry.strip()) # Print log entry to console as well
             metrics["detections_explained_count"] += 1
 
-    # ... (Writing summary log remains the same) ...
     logger.info(f"Writing reasoning summary to: {reasoning_log_path}")
     try:
         with open(reasoning_log_path, "w") as f:
@@ -353,19 +422,32 @@ def execute_explainability(
             f.write(f"Person Class Index Used: {person_class_index}\n")
             f.write(f"Processed: {metrics['images_processed_count']} | Failed: {metrics['images_failed_count']} | Skipped: {metrics['images_skipped_count']} (images)\n")
             f.write(f"Explained: {metrics['detections_explained_count']} | Skipped: {metrics['detections_skipped_count']} (detections)\n")
+            f.write(f"Visualizations: {metrics['visualizations_generated_count']}\n")
             f.write("="*40 + "\n\n")
             f.write("\n".join(all_reasoning_texts))
         if mlflow_run_id:
-            try: mlflow.log_artifact(str(reasoning_log_path), artifact_path="summary"); logger.info("...")
-            except Exception as mlflow_log_err: logger.warning(f"...")
+            try:
+                mlflow.log_artifact(str(reasoning_log_path), artifact_path="summary")
+                logger.info("Logged reasoning summary artifact to MLflow.")
+            except Exception as mlflow_log_err:
+                logger.warning(f"Failed to log reasoning summary artifact to MLflow: {mlflow_log_err}", exc_info=False)
     except Exception as write_err:
         logger.error(f"Failed to write reasoning summary log: {write_err}")
         return False, "FAILED", metrics
 
-    # ... (Determine final status remains the same) ...
-    if metrics["images_failed_count"] > 0: logger.error("..."); return False, "FAILED", metrics
-    elif metrics["images_processed_count"] == 0: logger.warning("..."); return True, "FINISHED", metrics
-    else: return True, "FINISHED", metrics
+    # Determine overall success based on processing outcomes
+    if metrics["images_processed_count"] == 0 and metrics["images_failed_count"] > 0:
+         logger.error("Execution failed: No images processed successfully.")
+         return False, "FAILED", metrics
+    elif metrics["images_failed_count"] > 0:
+         logger.warning("Execution finished with some image failures.")
+         return False, "FAILED", metrics # Treat any failure as overall failure
+    elif metrics["images_processed_count"] == 0 and metrics["images_failed_count"] == 0:
+         logger.warning("Execution finished, but no images were processed (e.g., all skipped or list empty).")
+         return True, "FINISHED", metrics # Technically finished, but nothing done
+    else:
+        logger.info("Execution finished successfully.")
+        return True, "FINISHED", metrics
 
 
 if __name__ == "__main__":
