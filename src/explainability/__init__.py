@@ -3,7 +3,7 @@ from .faster_rcnn_explainer import (
     get_target_layer,
     SUPPORTED_METHODS
 )
-from .visualization import visualize_explanation, overlay_heatmap
+from .visualization import visualize_explanation, overlay_heatmap, CV2_COLORMAPS
 from .reasoning import generate_reasoning_text
 
 __all__ = [
@@ -13,4 +13,5 @@ __all__ = [
     "visualize_explanation",
     "overlay_heatmap",
     "generate_reasoning_text",
+    "CV2_COLORMAPS"
 ]

@@ -24,8 +24,8 @@ model:
 images_to_explain:
   # Example using MTMMC data (adjust paths as needed)
   - "D:/MTMMC/train/train/s10/c09/rgb/000000.jpg"
+  - "D:/MTMMC/train/train/s47/c02/rgb/000000.jpg"
   - "D:/MTMMC/train/train/s47/c03/rgb/000000.jpg"
-  # Add more image paths here
 
 
 # --- Explainability Settings ---
