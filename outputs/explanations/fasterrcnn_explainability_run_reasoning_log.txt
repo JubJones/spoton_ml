@@ -1,0 +1,48 @@
+Explainability Run Summary: fasterrcnn_explainability_run
+Config: configs/explainability_config.yaml
+Checkpoint: mlflow-artifacts:/efb8b7a3169a4a7eb57e787113a71ef4/48175e2cacc147d5acb2bcd3748731ce/artifacts/checkpoints/ckpt_best_eval_map_50.pth
+Method: GRADCAM
+Person Class Index Used: 1
+Processed: 3 | Failed: 0 | Skipped: 0 (images)
+Explained: 9 | Skipped: 34 (detections)
+Visualizations: 9
+========================================
+
+--- Image: D:/MTMMC/train/train/s10/c09/rgb/000000.jpg ---
+ Detection 1: Box=[523,233,611,488], Score=0.9996, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [523, 233, 611, 488]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s10_c09_000000_explain_gradcam_det1_score1.00.png
+
+ Detection 2: Box=[837,344,1018,892], Score=0.9991, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [837, 344, 1018, 892]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s10_c09_000000_explain_gradcam_det2_score1.00.png
+
+ Detection 3: Box=[1065,250,1147,411], Score=0.9991, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [1065, 250, 1147, 411]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s10_c09_000000_explain_gradcam_det3_score1.00.png
+
+--- Image: D:/MTMMC/train/train/s47/c02/rgb/000000.jpg ---
+ Detection 1: Box=[1509,248,1592,339], Score=0.9997, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [1509, 248, 1592, 339]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s47_c02_000000_explain_gradcam_det1_score1.00.png
+
+ Detection 2: Box=[1403,304,1462,466], Score=0.9994, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [1403, 304, 1462, 466]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s47_c02_000000_explain_gradcam_det2_score1.00.png
+
+ Detection 3: Box=[1424,6,1478,139], Score=0.9993, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [1424, 6, 1478, 139]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s47_c02_000000_explain_gradcam_det3_score1.00.png
+
+--- Image: D:/MTMMC/train/train/s47/c03/rgb/000000.jpg ---
+ Detection 1: Box=[617,216,651,293], Score=0.9998, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [617, 216, 651, 293]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s47_c03_000000_explain_gradcam_det1_score1.00.png
+
+ Detection 2: Box=[1103,272,1144,368], Score=0.9994, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [1103, 272, 1144, 368]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s47_c03_000000_explain_gradcam_det2_score1.00.png
+
+ Detection 3: Box=[868,879,935,1026], Score=0.9992, Label=1
+   Reasoning: Detected object classified as 'person' (label 1) with a confidence score of 1.00. This high confidence suggests the model found strong visual evidence matching features learned for the 'person' class. The associated visualization (GRADCAM Focus) highlights the specific image regions that most influenced this classification decision. These influential regions are located primarily within the detected bounding box [868, 879, 935, 1026]. Reviewing the heatmap overlay can provide further insight into which parts of the object (e.g., head, torso) contributed most to the prediction.
+   Visualization: C:\Users\kritt\Downloads\spoton_ml\outputs\explanations\s47_c03_000000_explain_gradcam_det3_score1.00.png
