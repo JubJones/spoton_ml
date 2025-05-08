@@ -1,0 +1,55 @@
+# Configuration for running explainability analysis on Faster R-CNN
+
+run_name: "fasterrcnn_explainability_run" # Optional name for logging/output subdirs
+
+mlflow:
+  # Explainability runs usually don't create MLflow runs, but can use existing config
+  # Set experiment_name if you plan to log artifacts to an MLflow run (optional)
+  experiment_name: "Detection Explainability"
+  log_artifacts: false # Set to true to log outputs to a new MLflow run
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 1337     # Seed for reproducibility if needed
+
+# --- Model Configuration (MUST match the trained model) ---
+model:
+  type: "fasterrcnn"
+  num_classes: 2 # Background + Person (Adjust if your model differs)
+  
+  checkpoint_path: "mlflow-artifacts:/efb8b7a3169a4a7eb57e787113a71ef4/48175e2cacc147d5acb2bcd3748731ce/artifacts/checkpoints/ckpt_best_eval_map_50.pth" # <<<--- IMPORTANT: UPDATE THIS PATH
+
+# --- Data/Input Specification ---
+# List of images to process. Paths relative to project root or absolute.
+images_to_explain:
+  # Example using MTMMC data (adjust paths as needed)
+  - "D:/MTMMC/train/train/s10/c09/rgb/000000.jpg"
+  - "D:/MTMMC/train/train/s47/c02/rgb/000000.jpg"
+  - "D:/MTMMC/train/train/s47/c03/rgb/000000.jpg"
+
+
+# --- Explainability Settings ---
+explainability:
+  # Layer in the Faster R-CNN model to target for Grad-CAM
+  # 'backbone.body.layer4' is often a good choice for ResNet backbones
+  target_layer_name: "backbone.body.layer4"
+
+  # Index of the class to explain (1 for 'person' in our setup)
+  person_class_index: 1
+
+  # Only explain detections with confidence above this threshold
+  confidence_threshold_for_explanation: 0.6
+
+  # Explain the top N detections (sorted by score) per image
+  top_n_to_explain: 3
+
+  # Explainability method to use (currently only 'gradcam' supported by impl)
+  method: "gradcam"
+
+  # Where to save the output visualizations and reasoning log
+  # Relative paths are resolved from the project root
+  output_dir: "outputs/explanations"
+
+  # Visualization settings
+  heatmap_alpha: 0.6 # Transparency of the heatmap overlay
+  colormap_name: "COLORMAP_JET" # OpenCV Colormap name (e.g., COLORMAP_JET, COLORMAP_VIRIDIS)

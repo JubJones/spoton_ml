@@ -17,7 +17,7 @@ from torch.utils.data import DataLoader
 import torchvision
 from torchvision.models.detection import FasterRCNN, FasterRCNN_ResNet50_FPN_Weights
 from torchvision.models.detection.faster_rcnn import FastRCNNPredictor
-from torchvision.transforms import v2 as T
+from torchvision.transforms import v2 as T # Using v2 transforms
 
 import mlflow
 
@@ -74,13 +74,20 @@ def get_fasterrcnn_model(config: Dict[str, Any]) -> FasterRCNN:
 
 # --- Transforms ---
 def get_transform(train: bool, config: Dict[str, Any]) -> T.Compose:
-    """Gets the appropriate transforms for training or validation."""
+    """
+    Gets the appropriate transforms for training or validation using torchvision.transforms.v2.
+    """
     transforms = []
+    # Add ToImage first to ensure input is a tv_tensor.Image for subsequent transforms
+    transforms.append(T.ToImage()) # Convert PIL/np.array to tv_tensors.Image
+
     if train:
         transforms.append(T.RandomHorizontalFlip(p=0.5))
 
-    # Convert to float and scale to [0, 1] BEFORE normalization
+    # Convert Image dtype to float and scale to [0, 1]
     transforms.append(T.ToDtype(torch.float32, scale=True))
+
+    # Normalize expects a tensor or tv_tensors.Image
     transforms.append(
         T.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
     )
@@ -120,7 +127,10 @@ def run_single_training_job(
     run_artifact_dir = project_root / "mlruns_temp_artifacts" / run_id
     run_artifact_dir.mkdir(parents=True, exist_ok=True)
 
-    pytorch_person_class_id = 1
+    # --- Updated: Use person_class_id from model config, default to 1 ---
+    pytorch_person_class_id = model_config.get("person_class_id", 1)
+    logger.info(f"Using person_class_id for evaluation: {pytorch_person_class_id}")
+    # --- End Update ---
 
     try:
         logger.info("Logging parameters to MLflow...")
@@ -256,7 +266,7 @@ def run_single_training_job(
                         data_loader_val,
                         device,
                         epoch,
-                        person_class_id=pytorch_person_class_id,
+                        person_class_id=pytorch_person_class_id, # Pass correct class ID
                     )
                     mlflow.log_metric("epoch_val_loss_avg", avg_val_loss, step=epoch)
                     for k, v in eval_metrics.items():
@@ -288,15 +298,21 @@ def run_single_training_job(
                 if current_metric_value is not None and not np.isnan(
                     current_metric_value
                 ):
-                    if higher_is_better and current_metric_value > best_metric_value:
-                        metric_improved = True
-                        best_metric_value = current_metric_value
-                    elif (
-                        not higher_is_better
-                        and current_metric_value < best_metric_value
-                    ):
-                        metric_improved = True
-                        best_metric_value = current_metric_value
+                    # Handle the case where the metric might be -1 (e.g., mAP failed)
+                    if current_metric_value > -1.0:
+                        if higher_is_better and current_metric_value > best_metric_value:
+                            metric_improved = True
+                            best_metric_value = current_metric_value
+                        elif (
+                            not higher_is_better
+                            and current_metric_value < best_metric_value
+                        ):
+                            metric_improved = True
+                            best_metric_value = current_metric_value
+                    elif best_metric_value == -float("inf"): # Allow saving first epoch even if metric is -1
+                         metric_improved = True
+                         best_metric_value = current_metric_value
+
 
                 latest_path = checkpoint_dir / f"ckpt_epoch_{epoch}_latest.pth"
                 torch.save(
@@ -331,7 +347,7 @@ def run_single_training_job(
                     mlflow.set_tag(
                         f"best_{save_best_metric_name}", f"{best_metric_value:.4f}"
                     )
-                elif current_metric_value is None and epoch == 0:
+                elif current_metric_value is None and epoch == 0 and not data_loader_val: # Handle case with no validation data
                     best_model_path = checkpoint_dir / f"ckpt_best_epoch_0.pth"
                     torch.save(
                         {"epoch": epoch, "model_state_dict": model.state_dict()},
@@ -341,6 +357,7 @@ def run_single_training_job(
                         f"Saved first epoch checkpoint as best (no validation): {best_model_path.name}"
                     )
                     best_epoch_so_far = epoch
+
 
             training_duration = time.time() - start_time_training
             logger.info(
@@ -365,9 +382,10 @@ def run_single_training_job(
             )
             job_status = "FINISHED"
 
-        elif engine_type == "ultralytics":
-            logger.error(f"Attempted to use Ultralytics engine.")
-            job_status = "FAILED"
+        # --- Removed Ultralytics engine handling as it's not implemented ---
+        # elif engine_type == "ultralytics":
+        #     logger.error(f"Attempted to use Ultralytics engine (Not Implemented).")
+        #     job_status = "FAILED"
 
         else:
             logger.error(f"Unknown engine type: '{engine_type}'.")
