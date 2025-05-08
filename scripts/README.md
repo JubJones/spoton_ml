@@ -1,3 +1,5 @@
+ReID models:
+```
 # --- CLIP Models ---
 python export_reid_weights.py --input-weights C:\Users\kritt\Downloads\spoton_ml\weights\reid\clip_duke.pt --output-weights C:\Users\kritt\Downloads\spoton_ml\weights\reid_resaved\clip_duke.pt --model-name clip --num-classes 702
 python export_reid_weights.py --input-weights C:\Users\kritt\Downloads\spoton_ml\weights\reid\clip_market1501.pt --output-weights C:\Users\kritt\Downloads\spoton_ml\weights\reid_resaved\clip_market1501.pt --model-name clip --num-classes 751
@@ -26,3 +28,13 @@ python export_reid_weights.py --input-weights C:\Users\kritt\Downloads\spoton_ml
 # --- ResNet50 Models ---
 python export_reid_weights.py --input-weights C:\Users\kritt\Downloads\spoton_ml\weights\reid\resnet50_fc512_market1501.pt --output-weights C:\Users\kritt\Downloads\spoton_ml\weights\reid_resaved\resnet50_fc512_market1501.pt --model-name resnet50 --num-classes 751
 python export_reid_weights.py --input-weights C:\Users\kritt\Downloads\spoton_ml\weights\reid\resnet50_fc512_msmt17.pt --output-weights C:\Users\kritt\Downloads\spoton_ml\weights\reid_resaved\resnet50_fc512_msmt17.pt --model-name resnet50 --num-classes 1041 # Explicitly state MSMT17 classes
+```
+
+Export-Import MLflow:
+```
+pip install git+https://github.com/mlflow/mlflow-export-import
+```
+then
+```
+
+```
