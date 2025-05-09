@@ -1,1 +1,27 @@
 # spoton_ml
+
+dagshub upload --bucket Jwizzed/spoton_ml "c01/sub_video_01.mp4" "video_s37/c01/sub_video_01.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "c01/sub_video_02.mp4" "video_s37/c01/sub_video_02.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "c01/sub_video_03.mp4" "video_s37/c01/sub_video_03.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "c01/sub_video_04.mp4" "video_s37/c01/sub_video_04.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "c02/sub_video_01.mp4" "video_s37/c02/sub_video_01.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "c02/sub_video_02.mp4" "video_s37/c02/sub_video_02.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "c02/sub_video_03.mp4" "video_s37/c02/sub_video_03.mp4"
+
+
+dagshub upload --bucket Jwizzed/spoton_ml "f01/sub_video_01.mp4" "video_s14/c09/sub_video_01.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f01/sub_video_02.mp4" "video_s14/c09/sub_video_02.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f01/sub_video_03.mp4" "video_s14/c09/sub_video_03.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f01/sub_video_04.mp4" "video_s14/c09/sub_video_04.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f02/sub_video_01.mp4" "video_s14/c12/sub_video_01.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f02/sub_video_02.mp4" "video_s14/c12/sub_video_02.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f02/sub_video_03.mp4" "video_s14/c12/sub_video_03.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f02/sub_video_04.mp4" "video_s14/c12/sub_video_04.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f03/sub_video_01.mp4" "video_s14/c13/sub_video_01.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f03/sub_video_02.mp4" "video_s14/c13/sub_video_02.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f03/sub_video_03.mp4" "video_s14/c13/sub_video_03.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f03/sub_video_04.mp4" "video_s14/c13/sub_video_04.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f04/sub_video_01.mp4" "video_s14/c16/sub_video_01.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f04/sub_video_02.mp4" "video_s14/c16/sub_video_02.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f04/sub_video_03.mp4" "video_s14/c16/sub_video_03.mp4"
+dagshub upload --bucket Jwizzed/spoton_ml "f04/sub_video_04.mp4" "video_s14/c16/sub_video_04.mp4"
