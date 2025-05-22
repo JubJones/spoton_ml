@@ -30,9 +30,7 @@ try:
     from src.utils.mlflow_utils import setup_mlflow_experiment
     from src.core.runner import log_params_recursive, log_git_info
     from src.inference.detector import load_trained_fasterrcnn, infer_single_image
-    # --- MODIFICATION: Import get_transform directly ---
     from src.training.runner import get_transform
-    # --- END MODIFICATION ---
     from src.explainability import (
         explain_detection_gradcam,
         visualize_explanation,
@@ -50,7 +48,6 @@ except ImportError as e:
 logger = logging.getLogger(__name__)
 
 # --- Main Execution Function (Orchestrator) ---
-# (No changes needed in the main orchestrator function `main`)
 def main():
     """Main execution function for the explainability runner."""
     config_path_str = "configs/explainability_config.yaml"
