@@ -1,4 +1,3 @@
-# File: jubjones-spoton_ml/src/pipelines/backend_style_tracking_reid_pipeline.py
 """
 Pipeline for running tracking and Re-ID using logic adapted from the SpotOn backend.
 Uses ground truth bounding boxes as input to the tracker.
@@ -18,11 +17,11 @@ import mlflow # For getting active run_id
 try:
     import pandas as pd # type: ignore
     import motmetrics as mm # type: ignore
-    REQUESTED_MOT_METRICS = ['mota', 'motp', 'idf1', 'idsw', 'num_matches', 'num_false_positives', 'num_misses', 'num_switches']
+    REQUESTED_MOT_METRICS = ['idf1', 'idp', 'idr', 'num_matches', 'num_false_positives', 'num_misses']
     MOTMETRICS_AVAILABLE = True
 except ImportError:
-    pd = None 
-    mm = None 
+    pd = None
+    mm = None
     REQUESTED_MOT_METRICS = []
     MOTMETRICS_AVAILABLE = False
     logging.warning("`motmetrics` or `pandas` not found. Install them (`pip install motmetrics pandas`) to calculate standard MOT metrics.")
@@ -35,28 +34,28 @@ try:
     from src.utils.reid_device_utils import get_reid_device_specifier_string
     from src.tracking_backend_logic.common_types_adapter import (
         CameraID, TrackID, GlobalID, FeatureVector, TrackKey, BoundingBoxXYXY,
-        HandoffTriggerInfo # Only HandoffTriggerInfo needed here from this group
-    )
-    from src.tracking_backend_logic.botsort_tracker_adapter import BotSortTrackerAdapter
-    from src.tracking_backend_logic.camera_tracker_factory_adapter import CameraTrackerFactoryAdapter
-    from src.tracking_backend_logic.reid_manager_adapter import ReIDManagerAdapter
-    from src.tracking_backend_logic.handoff_logic_adapter import HandoffLogicAdapter # Import the class
-except ImportError as e:
-    logging.error(f"Error importing pipeline dependencies: {e}", exc_info=True)
-    import sys
-    _project_root_fallback = Path(__file__).parent.parent.parent
-    if str(_project_root_fallback) not in sys.path: sys.path.insert(0, str(_project_root_fallback))
-    from src.data.loader import FrameDataLoader
-    from src.evaluation.metrics import load_ground_truth, GroundTruthData
-    from src.utils.reid_device_utils import get_reid_device_specifier_string
-    from src.tracking_backend_logic.common_types_adapter import (
-        CameraID, TrackID, GlobalID, FeatureVector, TrackKey, BoundingBoxXYXY,
         HandoffTriggerInfo
     )
     from src.tracking_backend_logic.botsort_tracker_adapter import BotSortTrackerAdapter
     from src.tracking_backend_logic.camera_tracker_factory_adapter import CameraTrackerFactoryAdapter
     from src.tracking_backend_logic.reid_manager_adapter import ReIDManagerAdapter
     from src.tracking_backend_logic.handoff_logic_adapter import HandoffLogicAdapter
+except ImportError as e:
+    logging.error(f"Error importing pipeline dependencies: {e}", exc_info=True)
+    import sys
+    _project_root_fallback = Path(__file__).parent.parent.parent
+    if str(_project_root_fallback) not in sys.path: sys.path.insert(0, str(_project_root_fallback))
+    from src.data.loader import FrameDataLoader # type: ignore
+    from src.evaluation.metrics import load_ground_truth, GroundTruthData # type: ignore
+    from src.utils.reid_device_utils import get_reid_device_specifier_string # type: ignore
+    from src.tracking_backend_logic.common_types_adapter import ( # type: ignore
+        CameraID, TrackID, GlobalID, FeatureVector, TrackKey, BoundingBoxXYXY,
+        HandoffTriggerInfo
+    )
+    from src.tracking_backend_logic.botsort_tracker_adapter import BotSortTrackerAdapter # type: ignore
+    from src.tracking_backend_logic.camera_tracker_factory_adapter import CameraTrackerFactoryAdapter # type: ignore
+    from src.tracking_backend_logic.reid_manager_adapter import ReIDManagerAdapter # type: ignore
+    from src.tracking_backend_logic.handoff_logic_adapter import HandoffLogicAdapter # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,7 @@ class BackendStyleTrackingReidPipeline:
         self.ground_truth_data: Optional[GroundTruthData] = None
         self.tracker_factory: Optional[CameraTrackerFactoryAdapter] = None
         self.reid_manager: Optional[ReIDManagerAdapter] = None
-        self.handoff_logic_adapter: Optional[HandoffLogicAdapter] = None # Added
+        self.handoff_logic_adapter: Optional[HandoffLogicAdapter] = None
 
         self.person_class_id = config.get("evaluation", {}).get("person_class_id", 0)
         
@@ -123,7 +122,6 @@ class BackendStyleTrackingReidPipeline:
                 handoff_config_dict=self.handoff_config_from_yaml,
                 project_root=self.project_root
             )
-            # _parse_config_dict is called within HandoffLogicAdapter's __init__
             logger.info(f"[{self.run_name_tag}] HandoffLogicAdapter initialized and config parsed.")
 
             # 4. Tracker Factory Adapter
@@ -137,12 +135,12 @@ class BackendStyleTrackingReidPipeline:
             self.tracker_factory = CameraTrackerFactoryAdapter(
                 reid_weights_path=reid_full_weights_path,
                 device=self.preferred_device,
-                tracker_params={
-                    "half_precision": tracker_params_cfg.get("half_precision", False),
-                    "per_class": tracker_params_cfg.get("per_class", False)
-                }
+                half_precision=tracker_params_cfg.get("half_precision", False),
+                per_class=tracker_params_cfg.get("per_class", False)
             )
-            self.tracker_factory.preload_prototype_tracker() 
+            if hasattr(self.tracker_factory, 'preload_prototype_tracker'):
+                 self.tracker_factory.preload_prototype_tracker()
+            
             logger.info(f"[{self.run_name_tag}] CameraTrackerFactoryAdapter initialized and prototype preloaded.")
 
             # 5. Re-ID Manager Adapter
@@ -179,7 +177,7 @@ class BackendStyleTrackingReidPipeline:
                 confidence = float(row[5]) if num_cols > 5 and np.isfinite(row[5]) else 0.0
                 class_id = int(row[6]) if num_cols > 6 and np.isfinite(row[6]) else self.person_class_id
                 feature_vector: Optional[FeatureVector] = None
-                if num_cols > 7:
+                if num_cols > 7: 
                     feature_data = row[7:]
                     if feature_data.size > 0 and np.isfinite(feature_data).all():
                         feature_vector = FeatureVector(feature_data.astype(np.float32))
@@ -215,9 +213,10 @@ class BackendStyleTrackingReidPipeline:
             current_frame_active_track_keys: Set[TrackKey] = set()
             current_frame_handoff_triggers: List[HandoffTriggerInfo] = []
 
-            for cam_id in self.data_loader.active_camera_ids:
+            for cam_id_obj in self.data_loader.active_camera_ids: 
+                cam_id = CameraID(str(cam_id_obj)) 
                 filename = self.data_loader.image_filenames[frame_idx]
-                cam_dir_path = self.data_loader.camera_image_dirs[cam_id]
+                cam_dir_path = self.data_loader.camera_image_dirs[str(cam_id)] 
                 image_path = cam_dir_path / filename
                 frame_bgr: Optional[np.ndarray] = None
                 if image_path.is_file():
@@ -237,7 +236,7 @@ class BackendStyleTrackingReidPipeline:
 
                 frame_proc_start_time = time.perf_counter()
                 img_h, img_w = frame_bgr.shape[:2]
-                gt_for_frame_cam = self.ground_truth_data.get((frame_idx, cam_id), [])
+                gt_for_frame_cam = self.ground_truth_data.get((frame_idx, cam_id_obj), []) 
                 detections_for_tracker_input = []
                 for _, cx, cy, w_gt, h_gt in gt_for_frame_cam:
                     if w_gt > 0 and h_gt > 0:
@@ -260,13 +259,13 @@ class BackendStyleTrackingReidPipeline:
                         current_frame_features[track_info["track_key"]] = track_info["feature_vector"]
 
                 if raw_tracker_output_np.size > 0:
-                    assert self.reid_manager and self.data_loader and self.handoff_logic_adapter # Type hints
+                    assert self.reid_manager and self.data_loader and self.handoff_logic_adapter 
                     for track_info_for_handoff in parsed_tracks_this_cam:
                         bbox_for_handoff_check = np.array(track_info_for_handoff["bbox_xyxy"])
                         trigger_for_this_track = self.handoff_logic_adapter.check_exit_rules(
-                            environment_id=self.data_loader.selected_env, # type: ignore
+                            environment_id=self.data_loader.selected_env, 
                             camera_id=cam_id,
-                            bbox_xyxy=bbox_for_handoff_check, # Pass single bbox
+                            bbox_xyxy=bbox_for_handoff_check, 
                             frame_shape=(img_h, img_w)
                         )
                         if trigger_for_this_track:
@@ -324,7 +323,7 @@ class BackendStyleTrackingReidPipeline:
         
         if not MOTMETRICS_AVAILABLE:
             logger.warning(f"[{self.run_name_tag}] `motmetrics` library not available. Skipping MOT metrics calculation.")
-            for metric_name in ['MOTA', 'MOTP', 'IDF1', 'IDSW']: self.summary_metrics[metric_name.upper()] = -1.0 # Ensure keys are uppercase
+            for metric_name in ['MOTA', 'MOTP', 'IDF1', 'IDSW']: self.summary_metrics[metric_name.upper()] = -1.0 
             self.metrics_calculated = True
             return True
 
@@ -334,7 +333,7 @@ class BackendStyleTrackingReidPipeline:
                                        set(f_idx for f_idx, _ in self.ground_truth_data.keys())))
         if not active_frame_indices:
             logger.warning(f"[{self.run_name_tag}] No frame indices with GT or hypotheses. MOT metrics will be empty.")
-            for metric_name in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{metric_name.upper()}"] = 0.0 # Uppercase
+            for metric_name in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{metric_name.upper()}"] = 0.0 
             self.metrics_calculated = True
             return True
 
@@ -346,20 +345,20 @@ class BackendStyleTrackingReidPipeline:
 
             for cam_id_obj in self.data_loader.active_camera_ids:
                 cam_id_str = str(cam_id_obj)
-                gt_tuples_cam_frame = self.ground_truth_data.get((frame_idx, cam_id_obj), [])
+                gt_tuples_cam_frame = self.ground_truth_data.get((frame_idx, cam_id_obj), []) 
                 for obj_id_gt, cx, cy, w_gt, h_gt in gt_tuples_cam_frame:
                     if w_gt > 0 and h_gt > 0:
-                        unique_gt_id = f"{cam_id_str}_{obj_id_gt}"
-                        gt_ids_this_frame.append(unique_gt_id)
+                        gt_ids_this_frame.append(str(obj_id_gt))
                         gt_boxes_this_frame.append([cx - w_gt/2, cy - h_gt/2, w_gt, h_gt])
+                
                 hyp_list_cam_frame = self.raw_tracker_outputs_with_global_ids.get((frame_idx, cam_id_str), [])
                 for hyp_dict in hyp_list_cam_frame:
                     gid = hyp_dict["global_id"]
-                    if gid is None: continue
+                    if gid is None: continue 
                     x1, y1, x2, y2 = hyp_dict["bbox_xyxy"]
                     w_hyp, h_hyp = x2 - x1, y2 - y1
                     if w_hyp > 0 and h_hyp > 0:
-                        hyp_ids_this_frame.append(str(gid))
+                        hyp_ids_this_frame.append(str(gid)) 
                         hyp_boxes_this_frame.append([x1, y1, w_hyp, h_hyp])
             
             if gt_ids_this_frame or hyp_ids_this_frame:
@@ -367,17 +366,21 @@ class BackendStyleTrackingReidPipeline:
                 acc.update(gt_ids_this_frame, hyp_ids_this_frame, distances)
 
         mh = mm.metrics.create()
+        # MODIFIED: Pass generate_overall=False to compute
         summary_df = mh.compute(acc, metrics=REQUESTED_MOT_METRICS, name=self.run_name_tag)
         logger.info(f"[{self.run_name_tag}] MOT Metrics Calculation Complete:\n{summary_df}")
         
         if not summary_df.empty:
-            for metric_name_report in summary_df.columns: # Iterate over actual columns in report
+            # When generate_overall=False and name is given, the result is a DataFrame
+            # with one row (index=name) and columns for requested metrics.
+            metric_row = summary_df.loc[self.run_name_tag]
+            for metric_name_report in metric_row.index: # Iterate over column names (which are our metrics)
                 metric_key_mlflow = f"mot_{metric_name_report.upper().replace('%', '_PCT')}"
-                value = summary_df[metric_name_report].iloc[0]
-                self.summary_metrics[metric_key_mlflow] = round(float(value), 4) if isinstance(value, (float, np.floating, np.integer)) else int(value) # Handle int values too
+                value = metric_row[metric_name_report]
+                self.summary_metrics[metric_key_mlflow] = round(float(value), 4) if isinstance(value, (float, np.floating, np.integer)) else int(value)
         else:
             logger.warning(f"[{self.run_name_tag}] MOTMetrics summary DataFrame is empty. Metrics will be -1.")
-            for metric_name in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{metric_name.upper()}"] = -1.0
+            for metric_name in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{metric_name.upper()}"] = -1.0 # Store as -1 if calculation fails
         
         self.metrics_calculated = True
         return True
@@ -390,11 +393,11 @@ class BackendStyleTrackingReidPipeline:
                  return False, self.summary_metrics
             if not self.process_frames():
                 logger.warning(f"[{self.run_name_tag}] Frame processing did not complete successfully.")
-                self.calculate_metrics() # Attempt to calculate on partial if any
+                self.calculate_metrics() 
                 return False, self.summary_metrics
             if not self.calculate_metrics():
                  logger.warning(f"[{self.run_name_tag}] Metrics calculation failed after successful processing.")
-                 return True, self.summary_metrics # Processing was OK
+                 return True, self.summary_metrics 
             success = True
         except Exception as e:
             logger.critical(f"[{self.run_name_tag}] Unexpected error during pipeline execution: {e}", exc_info=True)
