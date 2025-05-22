@@ -1,4 +1,3 @@
-# File: jubjones-spoton_ml/src/run_backend_style_tracking_reid.py
 """
 Orchestrator script for running Tracking + Re-ID using adapted backend logic.
 This script sets up MLflow, loads configuration, instantiates and runs
@@ -29,7 +28,7 @@ try:
     from src.utils.mlflow_utils import setup_mlflow_experiment
     from src.utils.device_utils import get_selected_device
     from src.core.runner import log_params_recursive, log_metrics_dict, log_git_info
-    from src.pipelines.backend_style_tracking_reid_pipeline import BackendStyleTrackingReIDPipeline
+    from src.pipelines.backend_style_tracking_reid_pipeline import BackendStyleTrackingReidPipeline
 except ImportError as e:
     print(f"Error importing local modules in {Path(__file__).name}: {e}")
     print(f"PYTHONPATH: {sys.path}")
@@ -96,45 +95,41 @@ def main():
             log_git_info()
             mlflow.set_tag("run_type", "backend_style_tracking_reid")
             
-            # Log config file as artifact
             cfg_path_abs = (PROJECT_ROOT / config_path_str).resolve()
             if cfg_path_abs.is_file():
                  mlflow.log_artifact(str(cfg_path_abs), artifact_path="config")
             else:
                  logger.warning(f"Config file not found at {cfg_path_abs} for artifact logging.")
             
-            # Log requirements.txt
             req_path = PROJECT_ROOT / "requirements.txt"
             if req_path.is_file():
                 mlflow.log_artifact(str(req_path), artifact_path="code")
 
             # 5. Instantiate and Run the Pipeline
             logger.info("Instantiating BackendStyleTrackingReidPipeline...")
-            pipeline = BackendStyleTrackingReIDPipeline(
-                config=config,
-                device=preferred_device, # Pass the resolved preferred device
+            pipeline = BackendStyleTrackingReidPipeline(
+                config=config, # Pass the full config dictionary
+                device=preferred_device,
                 project_root=PROJECT_ROOT
             )
             
             logger.info("Running BackendStyleTrackingReidPipeline...")
             pipeline_success, result_summary = pipeline.run()
 
-            # Log actual devices used by trackers (if pipeline collected them)
+            # Log actual devices used by trackers
             if hasattr(pipeline, 'actual_tracker_devices') and pipeline.actual_tracker_devices:
-                for cam_id_log, dev_log in pipeline.actual_tracker_devices.items():
-                    mlflow.set_tag(f"actual_device_cam_{cam_id_log}", str(dev_log))
-                # Log a summary tag if all devices were the same
-                unique_devices_used = set(str(d) for d in pipeline.actual_tracker_devices.values())
-                if len(unique_devices_used) == 1:
-                    mlflow.set_tag("actual_device_all_trackers", unique_devices_used.pop())
-                elif len(unique_devices_used) > 1:
+                for cam_id_log, dev_log_val in pipeline.actual_tracker_devices.items():
+                    mlflow.set_tag(f"actual_device_cam_{cam_id_log}", str(dev_log_val))
+                unique_devices_used_str = set(str(d) for d in pipeline.actual_tracker_devices.values())
+                if len(unique_devices_used_str) == 1:
+                    mlflow.set_tag("actual_device_all_trackers", unique_devices_used_str.pop())
+                elif len(unique_devices_used_str) > 1:
                     mlflow.set_tag("actual_device_all_trackers", "mixed")
 
-
-            # Log Metrics
             if result_summary:
                 logger.info("Logging metrics from pipeline summary...")
-                log_metrics_dict(result_summary, prefix="eval") # Using "eval" prefix for consistency
+                # Prefix with "eval" for consistency with other metric logging patterns
+                log_metrics_dict(result_summary, prefix="eval") 
             else:
                 logger.warning("Pipeline returned no result summary to log.")
             
@@ -150,48 +145,37 @@ def main():
         overall_status = "KILLED"
         if run_id and mlflow.active_run() and mlflow.active_run().info.run_id == run_id:
             mlflow.set_tag("run_outcome", "Killed by user")
-        # Note: mlflow.end_run() will be called in finally
     except Exception as e:
         logger.critical(f"An uncaught error occurred during the run: {e}", exc_info=True)
         overall_status = "FAILED"
         if run_id and mlflow.active_run() and mlflow.active_run().info.run_id == run_id:
             mlflow.set_tag("run_outcome", "Crashed - Outer Script")
             try:
-                # Log traceback to MLflow
                 error_log_content = f"Error Type: {type(e).__name__}\nError Message: {e}\n\nTraceback:\n{traceback.format_exc()}"
                 mlflow.log_text(error_log_content, "error_log.txt")
             except Exception as log_err:
                 logger.error(f"Failed to log error details to MLflow: {log_err}")
-        # Note: mlflow.end_run() will be called in finally
     finally:
         logger.info(f"--- Finalizing Run (Script Status: {overall_status}) ---")
         
-        # Log the main script log file as an artifact
         if run_id and log_file_path.exists():
             try:
-                # Ensure all log handlers are flushed before attempting to log the file
-                for handler in logging.getLogger().handlers:
-                    handler.flush()
-                
+                for handler in logging.getLogger().handlers: handler.flush()
                 client = MlflowClient()
-                # Check if run is still active before logging artifacts
-                # This can prevent errors if the run was terminated by an exception within the `with` block
                 current_run_info = client.get_run(run_id)
-                if current_run_info.info.status in ["RUNNING", "SCHEDULED"]:
+                if current_run_info.info.status in ["RUNNING", "SCHEDULED"]: # Check if run is still active
                      client.log_artifact(run_id, str(log_file_path), artifact_path="run_logs")
-                     logger.info(f"Main run log file '{log_file_path.name}' logged as artifact to MLflow run {run_id}.")
+                     logger.info(f"Main run log file '{log_file_path.name}' logged to MLflow run {run_id}.")
                 else:
-                     logger.warning(f"Skipping script log artifact logging as run {run_id} is already terminated ({current_run_info.info.status}).")
-
+                     logger.warning(f"Skipping script log artifact logging: run {run_id} already terminated ({current_run_info.info.status}).")
             except Exception as log_artifact_err:
                 logger.warning(f"Could not log main run log file artifact '{log_file_path.name}': {log_artifact_err}")
 
-        # Ensure MLflow run is properly terminated
         active_run_obj = mlflow.active_run()
         if active_run_obj and active_run_obj.info.run_id == run_id:
             logger.info(f"Ensuring MLflow run {run_id} is terminated with status '{overall_status}'.")
             mlflow.end_run(status=overall_status)
-        elif run_id: # If run exists but isn't active (e.g., error outside context manager)
+        elif run_id: 
             try:
                 logger.warning(f"Attempting to terminate MLflow run {run_id} externally with status '{overall_status}'.")
                 client = MlflowClient()
@@ -199,7 +183,7 @@ def main():
                 if current_run_info.info.status in ["RUNNING", "SCHEDULED"]:
                     client.set_terminated(run_id, status=overall_status)
                 else:
-                    logger.info(f"MLflow run {run_id} already terminated with status: {current_run_info.info.status}.")
+                    logger.info(f"MLflow run {run_id} already terminated ({current_run_info.info.status}).")
             except Exception as term_err:
                 logger.error(f"Failed to terminate MLflow run {run_id} externally: {term_err}")
 
