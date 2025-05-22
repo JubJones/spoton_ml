@@ -22,8 +22,8 @@ class CameraTrackerFactoryAdapter:
         self,
         reid_weights_path: Path,
         device: torch.device,
-        half_precision: bool = False,
-        per_class: bool = False
+        half_precision: bool = False, # MODIFIED: Direct parameter
+        per_class: bool = False       # MODIFIED: Direct parameter
     ):
         """
         Initializes the CameraTrackerFactoryAdapter.
@@ -36,8 +36,8 @@ class CameraTrackerFactoryAdapter:
         """
         self.reid_weights_path = reid_weights_path
         self.device = device
-        self.half_precision = half_precision
-        self.per_class = per_class
+        self.half_precision = half_precision # MODIFIED: Store directly
+        self.per_class = per_class           # MODIFIED: Store directly
         self._trackers: Dict[CameraID, BotSortTrackerAdapter] = {}
 
         logger.info(
@@ -57,14 +57,36 @@ class CameraTrackerFactoryAdapter:
         """
         if camera_id not in self._trackers:
             logger.info(f"Creating new BotSortTrackerAdapter for camera {camera_id}")
+            # Pass stored parameters to the BotSortTrackerAdapter constructor
             self._trackers[camera_id] = BotSortTrackerAdapter(
+                reid_weights_path=self.reid_weights_path,
+                device=self.device,
+                half_precision=self.half_precision, # Use stored instance attribute
+                per_class=self.per_class         # Use stored instance attribute
+            )
+            self._trackers[camera_id].load_model()
+        return self._trackers[camera_id]
+
+    def preload_prototype_tracker(self): # Added method for consistency if used, ensure parameters are passed
+        """
+        Creates and loads a 'prototype' BotSortTrackerAdapter.
+        The primary purpose is to ensure that any shared models it uses (like ReID)
+        are loaded into memory/GPU during application startup.
+        """
+        logger.info("Preloading prototype BotSortTrackerAdapter (ML Repo style)...")
+        try:
+            prototype_tracker = BotSortTrackerAdapter(
                 reid_weights_path=self.reid_weights_path,
                 device=self.device,
                 half_precision=self.half_precision,
                 per_class=self.per_class
             )
-            self._trackers[camera_id].load_model()
-        return self._trackers[camera_id]
+            prototype_tracker.load_model()
+            prototype_tracker.warmup()
+            logger.info("Prototype BotSortTrackerAdapter and its ReID model preloaded and warmed up successfully.")
+        except Exception as e:
+            logger.error(f"Failed to preload prototype tracker for adapter: {e}", exc_info=True)
+
 
     def reset_tracker(self, camera_id: CameraID) -> None:
         """
@@ -110,4 +132,4 @@ class CameraTrackerFactoryAdapter:
         Returns:
             A dictionary mapping camera IDs to their respective trackers.
         """
-        return self._trackers.copy() 
+        return self._trackers.copy()

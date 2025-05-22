@@ -4,17 +4,18 @@ This class mirrors the structure and expected behavior of the backend's handoff 
 """
 import logging
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Set, Any
 
 import numpy as np
-import yaml
+import yaml # Keep yaml for potential direct loading if adapter design changes
 
 from src.tracking_backend_logic.common_types_adapter import (
     CameraID,
     CameraHandoffDetailConfigAdapter,
     ExitRuleModelAdapter,
     HandoffTriggerInfo,
-    QUADRANT_REGIONS_TEMPLATE
+    QUADRANT_REGIONS_TEMPLATE,
+    QuadrantName # Ensure QuadrantName is imported
 )
 
 logger = logging.getLogger(__name__)
@@ -24,209 +25,142 @@ class HandoffLogicAdapter:
     Manages handoff logic between cameras, adapted from the SpotOn backend.
     This class handles exit rule checking and handoff triggering.
     """
-    def __init__(self, config_path: Path):
+    def __init__(self, handoff_config_dict: Dict[str, Any], project_root: Path):
         """
         Initializes the HandoffLogicAdapter.
 
         Args:
-            config_path: Path to the handoff configuration YAML file.
+            handoff_config_dict: The 'handoff_config' section from the main configuration.
+            project_root: The root directory of the project, for resolving relative paths.
         """
-        self.config_path = config_path
-        self._config: Dict[CameraID, CameraHandoffDetailConfigAdapter] = {}
-        self._homography_matrices: Dict[CameraID, np.ndarray] = {}
-        self._quadrant_regions: Dict[CameraID, Dict[str, np.ndarray]] = {}
+        self.handoff_config_dict = handoff_config_dict
+        self.project_root = project_root
+        self._camera_configs: Dict[Tuple[str, str], CameraHandoffDetailConfigAdapter] = {} # Key: (env_id_str, cam_id_str)
+        self._homography_matrices: Dict[Tuple[str, str], np.ndarray] = {} # Key: (env_id_str, cam_id_str)
 
-        logger.info(f"HandoffLogicAdapter initialized with config: {self.config_path}")
+        logger.info(f"HandoffLogicAdapter initialized.")
+        self._parse_config_dict()
 
-    def load_config(self):
+    def _parse_config_dict(self):
         """
-        Loads handoff configuration from YAML file.
-        This method is synchronous to match typical config loading patterns.
+        Parses the handoff_config dictionary provided during initialization.
         """
         try:
-            with open(self.config_path, 'r') as f:
-                config_data = yaml.safe_load(f)
+            camera_details_config = self.handoff_config_dict.get("camera_details", {})
+            homography_base_dir_rel = self.handoff_config_dict.get("homography_data_dir", "homography_data_ml")
+            homography_base_dir_abs = (self.project_root / homography_base_dir_rel).resolve()
 
-            # Clear existing config
-            self._config.clear()
+            self._camera_configs.clear()
             self._homography_matrices.clear()
-            self._quadrant_regions.clear()
 
-            # Load camera configurations
-            for camera_id, camera_config in config_data.items():
-                # Convert to Pydantic model
-                camera_handoff_config = CameraHandoffDetailConfigAdapter(
-                    camera_id=camera_id,
-                    exit_rules=[
-                        ExitRuleModelAdapter(**rule)
-                        for rule in camera_config.get('exit_rules', [])
-                    ],
-                    homography_matrix_path=camera_config.get('homography_matrix_path')
-                )
-                self._config[camera_id] = camera_handoff_config
+            for cam_env_tuple_str, camera_config_entry_dict in camera_details_config.items():
+                try:
+                    # Safely parse the string tuple "('env', 'cam_id')"
+                    parsed_tuple = eval(cam_env_tuple_str) # Using eval as per original structure, assumes trusted config
+                    if not (isinstance(parsed_tuple, tuple) and len(parsed_tuple) == 2 and
+                            all(isinstance(s, str) for s in parsed_tuple)):
+                        raise ValueError("Key format error")
+                    env_id_str, cam_id_str = parsed_tuple
+                    current_key = (env_id_str, cam_id_str)
+                except Exception as e:
+                    logger.error(f"Could not parse camera_details key '{cam_env_tuple_str}': {e}. Skipping.")
+                    continue
 
-                # Load homography matrix if path is provided
+                # Pydantic model validation for the entry
+                camera_handoff_config = CameraHandoffDetailConfigAdapter(**camera_config_entry_dict)
+                self._camera_configs[current_key] = camera_handoff_config
+
                 if camera_handoff_config.homography_matrix_path:
                     try:
-                        matrix_path = Path(camera_handoff_config.homography_matrix_path)
+                        matrix_path = homography_base_dir_abs / camera_handoff_config.homography_matrix_path
                         if matrix_path.exists():
-                            self._homography_matrices[camera_id] = np.load(str(matrix_path))
-                            logger.info(f"Loaded homography matrix for camera {camera_id}")
+                            loaded_data = np.load(str(matrix_path))
+                            if isinstance(loaded_data, np.lib.npyio.NpzFile) and list(loaded_data.files):
+                                matrix_key_in_npz = list(loaded_data.files)[0] # Assume first array is the matrix
+                                self._homography_matrices[current_key] = loaded_data[matrix_key_in_npz]
+                                logger.info(f"Loaded homography matrix (key: {matrix_key_in_npz}) for {current_key} from NPZ {matrix_path}")
+                                loaded_data.close()
+                            elif isinstance(loaded_data, np.ndarray):
+                                self._homography_matrices[current_key] = loaded_data
+                                logger.info(f"Loaded homography matrix for key {current_key} from {matrix_path}")
+                            else:
+                                logger.warning(f"Homography data for {current_key} at {matrix_path} is not a direct NumPy array or recognizable NPZ. Type: {type(loaded_data)}")
                         else:
-                            logger.warning(
-                                f"Homography matrix file not found for camera {camera_id}: "
-                                f"{matrix_path}"
-                            )
+                            logger.warning(f"Homography matrix file not found for key {current_key}: {matrix_path}")
                     except Exception as e:
                         logger.error(
-                            f"Error loading homography matrix for camera {camera_id}: {e}",
-                            exc_info=True
+                            f"Error loading homography matrix for key {current_key} from path '{camera_handoff_config.homography_matrix_path}': {e}",
+                            exc_info=False # Keep log cleaner for this common warning
                         )
+            num_configs = len(self._camera_configs)
+            num_matrices = len(self._homography_matrices)
+            logger.info(f"Parsed handoff config. Loaded details for {num_configs} camera-env pairs and {num_matrices} homography matrices.")
 
-                # Initialize quadrant regions
-                self._quadrant_regions[camera_id] = QUADRANT_REGIONS_TEMPLATE.copy()
-
-            logger.info(f"Loaded handoff configuration for {len(self._config)} cameras")
         except Exception as e:
-            logger.error(f"Error loading handoff configuration: {e}", exc_info=True)
+            logger.error(f"Error parsing handoff configuration dictionary: {e}", exc_info=True)
             raise
 
     def check_exit_rules(
         self,
+        environment_id: str,
         camera_id: CameraID,
-        bbox: np.ndarray,
-        frame_shape: Tuple[int, int]
+        bbox_xyxy: np.ndarray, # Expect [x1, y1, x2, y2]
+        frame_shape: Tuple[int, int] # (height, width)
     ) -> Optional[HandoffTriggerInfo]:
         """
-        Checks if a bounding box triggers any exit rules for the given camera.
-
-        Args:
-            camera_id: ID of the camera to check exit rules for.
-            bbox: Bounding box in [x1, y1, x2, y2] format.
-            frame_shape: Shape of the frame (height, width).
-
-        Returns:
-            HandoffTriggerInfo if an exit rule is triggered, None otherwise.
+        Checks if a bounding box triggers any exit rules for the given camera and environment.
         """
-        if camera_id not in self._config:
-            logger.warning(f"No handoff configuration found for camera {camera_id}")
+        current_key = (str(environment_id), str(camera_id))
+        camera_config = self._camera_configs.get(current_key)
+
+        if not camera_config or not camera_config.exit_rules:
+            # logger.debug(f"No handoff configuration or exit rules for camera {camera_id} in env {environment_id}.")
             return None
 
-        camera_config = self._config[camera_id]
-        if not camera_config.exit_rules:
-            return None
-
-        # Get frame dimensions
         frame_height, frame_width = frame_shape
+        bbox_center_x = (bbox_xyxy[0] + bbox_xyxy[2]) / 2
+        bbox_center_y = (bbox_xyxy[1] + bbox_xyxy[3]) / 2
 
-        # Check each exit rule
         for rule in camera_config.exit_rules:
-            # Get quadrant regions for this camera
-            quadrant_regions = self._quadrant_regions[camera_id]
+            quadrant_func = QUADRANT_REGIONS_TEMPLATE.get(QuadrantName(rule.source_exit_quadrant))
+            if not quadrant_func:
+                logger.warning(f"Unknown quadrant name '{rule.source_exit_quadrant}' for {current_key}. Skipping rule.")
+                continue
 
-            # Check if bbox is in the specified quadrant
-            if rule.quadrant in quadrant_regions:
-                region = quadrant_regions[rule.quadrant]
-                bbox_center = np.array([
-                    (bbox[0] + bbox[2]) / 2,  # x center
-                    (bbox[1] + bbox[3]) / 2   # y center
-                ])
+            qx1, qy1, qx2, qy2 = quadrant_func(frame_width, frame_height)
 
-                # Check if bbox center is in the quadrant region
-                if self._is_point_in_region(bbox_center, region):
-                    # Check if bbox is close enough to the edge
-                    if self._is_bbox_near_edge(bbox, frame_width, frame_height, rule.edge_threshold):
-                        return HandoffTriggerInfo(
-                            camera_id=camera_id,
-                            exit_rule=rule,
-                            bbox=bbox
-                        )
-
+            if (qx1 <= bbox_center_x <= qx2 and qy1 <= bbox_center_y <= qy2):
+                # Simplified check: if center of bbox is in the quadrant, consider it triggered.
+                # Backend's logic might involve overlap ratios or edge proximity.
+                # This adapter currently relies on the center being within the defined quadrant.
+                logger.debug(f"Handoff rule triggered for {current_key}: Box center in {rule.source_exit_quadrant}, "
+                             f"targets {rule.target_cam_id}")
+                return HandoffTriggerInfo(
+                    source_track_key=(camera_id, TrackID(-1)), # Actual TrackID filled by pipeline
+                    rule=rule,
+                    source_bbox=list(bbox_xyxy) # Ensure it's a list of floats
+                )
         return None
 
-    def _is_point_in_region(self, point: np.ndarray, region: np.ndarray) -> bool:
+    def get_target_cameras(self, environment_id: str, camera_id: CameraID) -> List[CameraID]:
         """
-        Checks if a point is inside a region defined by a polygon.
-
-        Args:
-            point: Point coordinates [x, y].
-            region: Region polygon vertices.
-
-        Returns:
-            True if point is inside region, False otherwise.
+        Gets the list of unique target camera IDs for handoff from a source camera and environment.
         """
-        # Simple bounding box check first
-        min_x, min_y = np.min(region, axis=0)
-        max_x, max_y = np.max(region, axis=0)
-        if not (min_x <= point[0] <= max_x and min_y <= point[1] <= max_y):
-            return False
-
-        # Ray casting algorithm for point-in-polygon
-        n = len(region)
-        inside = False
-        j = n - 1
-        for i in range(n):
-            if ((region[i][1] > point[1]) != (region[j][1] > point[1]) and
-                point[0] < (region[j][0] - region[i][0]) * (point[1] - region[i][1]) /
-                (region[j][1] - region[i][1]) + region[i][0]):
-                inside = not inside
-            j = i
-        return inside
-
-    def _is_bbox_near_edge(
-        self,
-        bbox: np.ndarray,
-        frame_width: int,
-        frame_height: int,
-        threshold: float
-    ) -> bool:
-        """
-        Checks if a bounding box is near the edge of the frame.
-
-        Args:
-            bbox: Bounding box in [x1, y1, x2, y2] format.
-            frame_width: Width of the frame.
-            frame_height: Height of the frame.
-            threshold: Distance threshold from edge.
-
-        Returns:
-            True if bbox is near edge, False otherwise.
-        """
-        # Check distance to each edge
-        dist_to_left = bbox[0]
-        dist_to_right = frame_width - bbox[2]
-        dist_to_top = bbox[1]
-        dist_to_bottom = frame_height - bbox[3]
-
-        return any(d < threshold for d in [dist_to_left, dist_to_right, dist_to_top, dist_to_bottom])
-
-    def get_target_cameras(self, camera_id: CameraID) -> List[CameraID]:
-        """
-        Gets the list of target cameras for handoff from a source camera.
-
-        Args:
-            camera_id: ID of the source camera.
-
-        Returns:
-            List of target camera IDs.
-        """
-        if camera_id not in self._config:
+        current_key = (str(environment_id), str(camera_id))
+        camera_config = self._camera_configs.get(current_key)
+        if not camera_config:
             return []
 
-        camera_config = self._config[camera_id]
-        target_cameras = set()
+        target_cameras: Set[CameraID] = set()
         for rule in camera_config.exit_rules:
-            target_cameras.update(rule.target_cameras)
+            target_cameras.add(rule.target_cam_id)
         return list(target_cameras)
 
-    def get_homography_matrix(self, camera_id: CameraID) -> Optional[np.ndarray]:
+    def get_homography_matrix(self, environment_id: str, camera_id: CameraID) -> Optional[np.ndarray]:
         """
-        Gets the homography matrix for a camera.
-
-        Args:
-            camera_id: ID of the camera.
-
-        Returns:
-            Homography matrix if available, None otherwise.
+        Gets the pre-loaded homography matrix for a camera in a specific environment.
         """
-        return self._homography_matrices.get(camera_id) 
+        current_key = (str(environment_id), str(camera_id))
+        return self._homography_matrices.get(current_key)
+    
+    
