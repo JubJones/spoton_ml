@@ -1,0 +1,160 @@
+parent_run_name: "backend_logic_tracking_reid_comparison"
+
+mlflow:
+  experiment_name: "Tracking+ReID (Backend Logic)"
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+
+data:
+  base_path: "D:/MTMMC"
+  # base_path: "/Volumes/HDD/MTMMC" # Example for macOS/Linux
+
+  # --- ReID Model Weights Configuration ---
+  # Base directory for ReID model weights, relative to project root
+  weights_base_dir: "weights/reid"
+
+  # --- Environment / Scene Selection ---
+  selected_environment: "factory" # Options: "factory", "campus"
+
+  # --- Scene Specific Settings (for data loading) ---
+  campus:
+    scene_id: "s47" # From SpotOn backend config
+    camera_ids: ["c01", "c02", "c03", "c05"]
+    max_frames_per_camera: 100 # Use -1 for all frames, or set a number for quicker tests
+
+  factory:
+    scene_id: "s10" # From SpotOn backend config
+    camera_ids: ["c09", "c12", "c13", "c16"]
+    max_frames_per_camera: 100 # Use -1 for all frames
+
+# --- Tracker Configuration (BotSort specific, adapted from backend) ---
+tracker_params:
+  type: "botsort" # Fixed as per request
+  # Corresponds to TRACKER_HALF_PRECISION in backend config
+  half_precision: False
+  # Corresponds to TRACKER_PER_CLASS in backend config
+  per_class: False
+
+# --- Re-ID Model & Parameters (CLIP specific, adapted from backend) ---
+reid_params:
+  # Corresponds to REID_MODEL_TYPE, fixed to 'clip' for this request
+  model_type: "clip"
+  # Relative to data.weights_base_dir
+  weights_path: "clip_market1501.pt" # <<<--- User needs to provide this file
+
+  # Corresponds to REID_MODEL_HALF_PRECISION in backend config
+  half_precision: False
+
+  # Re-ID logic parameters from backend config
+  similarity_threshold: 0.65
+  gallery_ema_alpha: 0.9
+  refresh_interval_frames: 10
+  lost_track_buffer_frames: 200
+  main_gallery_prune_interval_frames: 500
+  main_gallery_prune_threshold_frames: 400 # Typically REID_LOST_TRACK_BUFFER_FRAMES * 2
+
+# --- Handoff Configuration (Mirrors backend CAMERA_HANDOFF_DETAILS & related settings) ---
+handoff_config:
+  # Corresponds to MIN_BBOX_OVERLAP_RATIO_IN_QUADRANT in backend config
+  min_bbox_overlap_ratio_in_quadrant: 0.40
+  # Corresponds to HOMOGRAPHY_DATA_DIR in backend config (for config parity, not used by current handoff logic)
+  # Relative to project root
+  homography_data_dir: "homography_data_ml" # <<<--- User can place .npz files here if needed for other reasons
+
+  # Corresponds to POSSIBLE_CAMERA_OVERLAPS in backend config
+  # List of [cam_id1, cam_id2] pairs
+  possible_camera_overlaps:
+    # --- Factory Overlaps ---
+    - ["c09", "c12"]
+    - ["c12", "c13"]
+    - ["c13", "c16"]
+    # --- Campus Overlaps ---
+    - ["c01", "c03"]
+    - ["c02", "c03"]
+    - ["c03", "c05"]
+
+  # Defines detailed handoff rules per camera, mirroring backend's CAMERA_HANDOFF_DETAILS
+  # Key is a string tuple: "('environment_id', 'camera_id')"
+  camera_details:
+    "('campus', 'c01')":
+      exit_rules:
+        - source_exit_quadrant: "upper_right"
+          target_cam_id: "c03"
+          target_entry_area: "bottom_left"
+      homography_matrix_path: "homography_points_c01_scene_s47.npz" # For config parity
+    "('campus', 'c02')":
+      exit_rules:
+        - source_exit_quadrant: "upper_right"
+          target_cam_id: "c05"
+          target_entry_area: "upper left"
+      homography_matrix_path: "homography_points_c02_scene_s47.npz"
+    "('campus', 'c03')":
+      exit_rules:
+        - source_exit_quadrant: "bottom_left"
+          target_cam_id: "c01"
+          target_entry_area: "upper_right"
+        - source_exit_quadrant: "upper_right"
+          target_cam_id: "c05"
+          target_entry_area: "upper left"
+      homography_matrix_path: "homography_points_c03_scene_s47.npz"
+    "('campus', 'c05')":
+      exit_rules:
+        - source_exit_quadrant: "upper_left"
+          target_cam_id: "c02"
+          target_entry_area: "upper_right"
+        - source_exit_quadrant: "upper_left"
+          target_cam_id: "c03"
+          target_entry_area: "upper_right"
+      homography_matrix_path: "homography_points_c05_scene_s47.npz"
+    "('factory', 'c09')":
+      exit_rules:
+        - source_exit_quadrant: "lower_left"
+          target_cam_id: "c13"
+          target_entry_area: "upper right"
+          notes: "wait; overlap c13/c16 possible"
+        - source_exit_quadrant: "lower_right"
+          target_cam_id: "c13"
+          target_entry_area: "upper right"
+          notes: "wait; overlap c13/c16 possible"
+      homography_matrix_path: "homography_points_c09_scene_s14.npz"
+    "('factory', 'c12')":
+      exit_rules:
+        - source_exit_quadrant: "upper_left"
+          target_cam_id: "c13"
+          target_entry_area: "upper left"
+          notes: "overlap c13 possible"
+        - source_exit_quadrant: "lower_left"
+          target_cam_id: "c13"
+          target_entry_area: "upper left"
+          notes: "overlap c13 possible"
+      homography_matrix_path: "homography_points_c12_scene_s14.npz"
+    "('factory', 'c13')":
+      exit_rules:
+        - source_exit_quadrant: "upper_right"
+          target_cam_id: "c09"
+          target_entry_area: "down"
+          notes: "wait; overlap c09 possible"
+        - source_exit_quadrant: "lower_right"
+          target_cam_id: "c09"
+          target_entry_area: "down"
+          notes: "wait; overlap c09 possible"
+        - source_exit_quadrant: "upper_left"
+          target_cam_id: "c12"
+          target_entry_area: "upper left"
+          notes: "overlap c12 possible"
+        - source_exit_quadrant: "lower_left"
+          target_cam_id: "c12"
+          target_entry_area: "upper left"
+          notes: "overlap c12 possible"
+      homography_matrix_path: "homography_points_c13_scene_s14.npz"
+    "('factory', 'c16')":
+      exit_rules: []
+      homography_matrix_path: "homography_points_c16_scene_s14.npz"
+
+# --- Evaluation Settings ---
+evaluation:
+  # person_class_id in MTMMC GT is 0.
+  # This is used to filter GT boxes to only 'person' for evaluation.
+  person_class_id: 0 
