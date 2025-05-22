@@ -11,120 +11,78 @@ from collections import defaultdict
 import numpy as np
 import torch
 from tqdm import tqdm
-import mlflow # For getting active run_id
+import mlflow
 
-# --- Optional: Import pandas and motmetrics ---
 try:
     import pandas as pd # type: ignore
     import motmetrics as mm # type: ignore
     REQUESTED_MOT_METRICS = ['idf1', 'idp', 'idr', 'num_matches', 'num_false_positives', 'num_misses']
     MOTMETRICS_AVAILABLE = True
 except ImportError:
-    pd = None
-    mm = None
-    REQUESTED_MOT_METRICS = []
-    MOTMETRICS_AVAILABLE = False
-    logging.warning("`motmetrics` or `pandas` not found. Install them (`pip install motmetrics pandas`) to calculate standard MOT metrics.")
+    pd = None; mm = None; REQUESTED_MOT_METRICS = []; MOTMETRICS_AVAILABLE = False
+    logging.warning("`motmetrics` or `pandas` not found. Install them (`pip install motmetrics pandas`) for standard MOT metrics.")
 
-
-# --- Local Imports ---
-try:
-    from src.data.loader import FrameDataLoader
-    from src.evaluation.metrics import load_ground_truth, GroundTruthData
-    from src.utils.reid_device_utils import get_reid_device_specifier_string
-    from src.tracking_backend_logic.common_types_adapter import (
-        CameraID, TrackID, GlobalID, FeatureVector, TrackKey, BoundingBoxXYXY,
-        HandoffTriggerInfo
-    )
-    from src.tracking_backend_logic.botsort_tracker_adapter import BotSortTrackerAdapter
-    from src.tracking_backend_logic.camera_tracker_factory_adapter import CameraTrackerFactoryAdapter
-    from src.tracking_backend_logic.reid_manager_adapter import ReIDManagerAdapter
-    from src.tracking_backend_logic.handoff_logic_adapter import HandoffLogicAdapter
-except ImportError as e:
-    logging.error(f"Error importing pipeline dependencies: {e}", exc_info=True)
-    import sys
-    _project_root_fallback = Path(__file__).parent.parent.parent
-    if str(_project_root_fallback) not in sys.path: sys.path.insert(0, str(_project_root_fallback))
-    from src.data.loader import FrameDataLoader # type: ignore
-    from src.evaluation.metrics import load_ground_truth, GroundTruthData # type: ignore
-    from src.utils.reid_device_utils import get_reid_device_specifier_string # type: ignore
-    from src.tracking_backend_logic.common_types_adapter import ( # type: ignore
-        CameraID, TrackID, GlobalID, FeatureVector, TrackKey, BoundingBoxXYXY,
-        HandoffTriggerInfo
-    )
-    from src.tracking_backend_logic.botsort_tracker_adapter import BotSortTrackerAdapter # type: ignore
-    from src.tracking_backend_logic.camera_tracker_factory_adapter import CameraTrackerFactoryAdapter # type: ignore
-    from src.tracking_backend_logic.reid_manager_adapter import ReIDManagerAdapter # type: ignore
-    from src.tracking_backend_logic.handoff_logic_adapter import HandoffLogicAdapter # type: ignore
+from src.data.loader import FrameDataLoader
+from src.evaluation.metrics import load_ground_truth, GroundTruthData
+from src.utils.reid_device_utils import get_reid_device_specifier_string
+from src.tracking_backend_logic.common_types_adapter import (
+    CameraID, TrackID, GlobalID, FeatureVector, TrackKey, BoundingBoxXYXY, HandoffTriggerInfo
+)
+from src.tracking_backend_logic.botsort_tracker_adapter import BotSortTrackerAdapter
+from src.tracking_backend_logic.camera_tracker_factory_adapter import CameraTrackerFactoryAdapter
+from src.tracking_backend_logic.reid_manager_adapter import ReIDManagerAdapter
+from src.tracking_backend_logic.handoff_logic_adapter import HandoffLogicAdapter
 
 logger = logging.getLogger(__name__)
-
 TrackingReidResultSummary = Dict[str, Any]
 
 class BackendStyleTrackingReidPipeline:
-    def __init__(self, config: Dict[str, Any], device: torch.device, project_root: Path):
+    def __init__(self, config: Dict[str, Any], device: torch.device, project_root: Path,
+                 similarity_method: str = "cosine" # NEW: Accept similarity_method
+                 ):
         self.config = config
         self.preferred_device = device
         self.project_root = project_root
+        self.similarity_method = similarity_method # NEW: Store it
 
         self.data_loader: Optional[FrameDataLoader] = None
         self.ground_truth_data: Optional[GroundTruthData] = None
         self.tracker_factory: Optional[CameraTrackerFactoryAdapter] = None
         self.reid_manager: Optional[ReIDManagerAdapter] = None
         self.handoff_logic_adapter: Optional[HandoffLogicAdapter] = None
-
         self.person_class_id = config.get("evaluation", {}).get("person_class_id", 0)
-        
         self.reid_config_from_yaml = config.get("reid_params", {})
         self.handoff_config_from_yaml = config.get("handoff_config", {})
-        
         self.raw_tracker_outputs_with_global_ids: Dict[Tuple[int, str], List[Dict[str, Any]]] = defaultdict(list)
         self.summary_metrics: TrackingReidResultSummary = {}
         self.actual_tracker_devices: Dict[CameraID, Any] = {}
-
         self.initialized = False
         self.processed = False
         self.metrics_calculated = False
 
         tracker_type_from_cfg = config.get('tracker_params',{}).get('type','botsort_adapter')
         reid_type_from_cfg = self.reid_config_from_yaml.get('model_type','clip_adapter')
-        self.run_name_tag = f"TrkAdap_{tracker_type_from_cfg}_ReIDAdap_{reid_type_from_cfg}"
+        # MODIFIED: Include similarity_method in run_name_tag
+        self.run_name_tag = f"TrkAdap_{tracker_type_from_cfg}_ReIDAdap_{reid_type_from_cfg}_Sim_{self.similarity_method}"
 
     def initialize_components(self) -> bool:
         logger.info(f"[{self.run_name_tag}] Initializing Backend-Style Tracking+ReID pipeline components...")
         try:
-            # 1. Data Loader
             self.data_loader = FrameDataLoader(self.config)
-            if not self.data_loader.active_camera_ids:
-                raise ValueError("Data loader found 0 active cameras to process.")
-            if len(self.data_loader) == 0:
-                raise ValueError("Data loader found 0 frame indices/filenames to process.")
-            logger.info(
-                f"[{self.run_name_tag}] Data loader initialized for {len(self.data_loader.active_camera_ids)} active cameras: "
-                f"{self.data_loader.active_camera_ids}. Processing {len(self.data_loader)} unique frame indices."
-            )
-
-            # 2. Ground Truth
+            if not self.data_loader.active_camera_ids or len(self.data_loader) == 0:
+                raise ValueError("Data loader found 0 active cameras or frames.")
+            
             self.ground_truth_data, _ = load_ground_truth(
-                self.data_loader.scene_path,
-                self.data_loader.active_camera_ids,
-                self.data_loader.image_filenames,
-                self.person_class_id
+                self.data_loader.scene_path, self.data_loader.active_camera_ids,
+                self.data_loader.image_filenames, self.person_class_id
             )
             if not self.ground_truth_data:
-                logger.warning("Ground truth data (gt.txt) could not be loaded or is empty. MOT metrics will be affected.")
-            else:
-                logger.info(f"[{self.run_name_tag}] Ground truth loaded for {len(self.ground_truth_data)} (frame_idx, cam_id) pairs.")
+                logger.warning("Ground truth data could not be loaded or is empty.")
 
-            # 3. Initialize Handoff Logic Adapter
-            logger.info(f"[{self.run_name_tag}] Initializing HandoffLogicAdapter...")
             self.handoff_logic_adapter = HandoffLogicAdapter(
-                handoff_config_dict=self.handoff_config_from_yaml,
-                project_root=self.project_root
+                self.handoff_config_from_yaml, self.project_root
             )
-            logger.info(f"[{self.run_name_tag}] HandoffLogicAdapter initialized and config parsed.")
-
-            # 4. Tracker Factory Adapter
+            
             tracker_params_cfg = self.config.get("tracker_params", {})
             reid_weights_rel_path = self.reid_config_from_yaml.get("weights_path", "clip_market1501.pt")
             weights_base_dir_str = self.config.get("data", {}).get("weights_base_dir", "weights/reid")
@@ -133,32 +91,30 @@ class BackendStyleTrackingReidPipeline:
                 raise FileNotFoundError(f"Re-ID weights file for tracker not found: {reid_full_weights_path}")
 
             self.tracker_factory = CameraTrackerFactoryAdapter(
-                reid_weights_path=reid_full_weights_path,
-                device=self.preferred_device,
+                reid_weights_path=reid_full_weights_path, device=self.preferred_device,
                 half_precision=tracker_params_cfg.get("half_precision", False),
                 per_class=tracker_params_cfg.get("per_class", False)
             )
             if hasattr(self.tracker_factory, 'preload_prototype_tracker'):
                  self.tracker_factory.preload_prototype_tracker()
             
-            logger.info(f"[{self.run_name_tag}] CameraTrackerFactoryAdapter initialized and prototype preloaded.")
-
-            # 5. Re-ID Manager Adapter
             active_mlflow_run = mlflow.active_run()
-            run_id_for_context = active_mlflow_run.info.run_id if active_mlflow_run else "local_run_context_reid"
+            run_id_for_context = active_mlflow_run.info.run_id if active_mlflow_run else f"local_run_{self.similarity_method}"
+            # MODIFIED: Pass similarity_method to ReIDManagerAdapter
             self.reid_manager = ReIDManagerAdapter(
                 run_id_context=run_id_for_context,
                 reid_config=self.reid_config_from_yaml,
-                handoff_config=self.handoff_config_from_yaml
+                handoff_config=self.handoff_config_from_yaml,
+                similarity_method=self.similarity_method # Pass the method
             )
-            logger.info(f"[{self.run_name_tag}] ReIDManagerAdapter initialized.")
-
             self.initialized = True
             return True
         except Exception as e:
             logger.critical(f"[{self.run_name_tag}] Failed to initialize pipeline components: {e}", exc_info=True)
             self.initialized = False
             return False
+
+    # _parse_tracker_output_adapter remains the same
 
     def _parse_tracker_output_adapter(
         self, camera_id: CameraID, tracker_output_np: np.ndarray
@@ -193,7 +149,7 @@ class BackendStyleTrackingReidPipeline:
     def process_frames(self) -> bool:
         if not self.initialized or not self.data_loader or not self.tracker_factory or \
            not self.reid_manager or self.ground_truth_data is None or not self.handoff_logic_adapter:
-            logger.error("Cannot process frames: Pipeline not fully initialized or critical components missing.")
+            logger.error(f"[{self.run_name_tag}] Cannot process frames: Pipeline not fully initialized or critical components missing.")
             return False
 
         logger.info(f"[{self.run_name_tag}] Starting frame processing loop (backend style)...")
@@ -216,7 +172,8 @@ class BackendStyleTrackingReidPipeline:
             for cam_id_obj in self.data_loader.active_camera_ids: 
                 cam_id = CameraID(str(cam_id_obj)) 
                 filename = self.data_loader.image_filenames[frame_idx]
-                cam_dir_path = self.data_loader.camera_image_dirs[str(cam_id)] 
+                # Ensure camera_image_dirs uses string key if cam_id is now consistently string
+                cam_dir_path = self.data_loader.camera_image_dirs[str(cam_id_obj)] 
                 image_path = cam_dir_path / filename
                 frame_bgr: Optional[np.ndarray] = None
                 if image_path.is_file():
@@ -317,27 +274,32 @@ class BackendStyleTrackingReidPipeline:
         if not self.processed:
             logger.error(f"[{self.run_name_tag}] Cannot calculate metrics: Frame processing not completed.")
             return False
-        if not self.data_loader or self.ground_truth_data is None:
+        if not self.data_loader or self.ground_truth_data is None: # Ensure GT data is checked
             logger.error(f"[{self.run_name_tag}] Cannot calculate metrics: Data loader or GT data missing.")
             return False
         
         if not MOTMETRICS_AVAILABLE:
             logger.warning(f"[{self.run_name_tag}] `motmetrics` library not available. Skipping MOT metrics calculation.")
-            for metric_name in ['MOTA', 'MOTP', 'IDF1', 'IDSW']: self.summary_metrics[metric_name.upper()] = -1.0 
+            # Add placeholders for all metrics if motmetrics is not available
+            for metric_name in ['MOTA', 'MOTP', 'IDF1', 'IDSW', 'IDP', 'IDR', 'NUM_MATCHES', 'NUM_FALSE_POSITIVES', 'NUM_MISSES']:
+                self.summary_metrics[f"mot_{metric_name.upper()}"] = -1.0
             self.metrics_calculated = True
             return True
 
         logger.info(f"[{self.run_name_tag}] Preparing data for motmetrics...")
         acc = mm.MOTAccumulator(auto_id=True)
-        active_frame_indices = sorted(list(set(f_idx for f_idx, _ in self.raw_tracker_outputs_with_global_ids.keys()) | \
-                                       set(f_idx for f_idx, _ in self.ground_truth_data.keys())))
-        if not active_frame_indices:
-            logger.warning(f"[{self.run_name_tag}] No frame indices with GT or hypotheses. MOT metrics will be empty.")
-            for metric_name in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{metric_name.upper()}"] = 0.0 
+        # Ensure eval_frame_indices covers all frames that have either GT or hypotheses
+        processed_frame_indices = set(idx for idx, _ in self.raw_tracker_outputs_with_global_ids.keys())
+        gt_frame_indices = set(idx for idx, _ in self.ground_truth_data.keys())
+        eval_frame_indices = sorted(list(processed_frame_indices.union(gt_frame_indices)))
+
+        if not eval_frame_indices:
+            logger.warning(f"[{self.run_name_tag}] No frame indices with GT or Hypotheses. MOT metrics will be empty.")
+            for metric_name in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{metric_name.upper()}"] = 0.0
             self.metrics_calculated = True
             return True
 
-        for frame_idx in tqdm(active_frame_indices, desc=f"Accumulating MOT ({self.run_name_tag})"):
+        for frame_idx in tqdm(eval_frame_indices, desc=f"Accumulating MOT ({self.run_name_tag})"):
             gt_ids_this_frame: List[str] = []
             gt_boxes_this_frame: List[List[float]] = []
             hyp_ids_this_frame: List[str] = []
@@ -345,7 +307,7 @@ class BackendStyleTrackingReidPipeline:
 
             for cam_id_obj in self.data_loader.active_camera_ids:
                 cam_id_str = str(cam_id_obj)
-                gt_tuples_cam_frame = self.ground_truth_data.get((frame_idx, cam_id_obj), []) 
+                gt_tuples_cam_frame = self.ground_truth_data.get((frame_idx, cam_id_obj), [])
                 for obj_id_gt, cx, cy, w_gt, h_gt in gt_tuples_cam_frame:
                     if w_gt > 0 and h_gt > 0:
                         gt_ids_this_frame.append(str(obj_id_gt))
@@ -354,11 +316,11 @@ class BackendStyleTrackingReidPipeline:
                 hyp_list_cam_frame = self.raw_tracker_outputs_with_global_ids.get((frame_idx, cam_id_str), [])
                 for hyp_dict in hyp_list_cam_frame:
                     gid = hyp_dict["global_id"]
-                    if gid is None: continue 
+                    if gid is None: continue
                     x1, y1, x2, y2 = hyp_dict["bbox_xyxy"]
                     w_hyp, h_hyp = x2 - x1, y2 - y1
                     if w_hyp > 0 and h_hyp > 0:
-                        hyp_ids_this_frame.append(str(gid)) 
+                        hyp_ids_this_frame.append(str(gid))
                         hyp_boxes_this_frame.append([x1, y1, w_hyp, h_hyp])
             
             if gt_ids_this_frame or hyp_ids_this_frame:
@@ -366,21 +328,18 @@ class BackendStyleTrackingReidPipeline:
                 acc.update(gt_ids_this_frame, hyp_ids_this_frame, distances)
 
         mh = mm.metrics.create()
-        # MODIFIED: Pass generate_overall=False to compute
         summary_df = mh.compute(acc, metrics=REQUESTED_MOT_METRICS, name=self.run_name_tag)
         logger.info(f"[{self.run_name_tag}] MOT Metrics Calculation Complete:\n{summary_df}")
         
         if not summary_df.empty:
-            # When generate_overall=False and name is given, the result is a DataFrame
-            # with one row (index=name) and columns for requested metrics.
             metric_row = summary_df.loc[self.run_name_tag]
-            for metric_name_report in metric_row.index: # Iterate over column names (which are our metrics)
+            for metric_name_report in metric_row.index:
                 metric_key_mlflow = f"mot_{metric_name_report.upper().replace('%', '_PCT')}"
                 value = metric_row[metric_name_report]
                 self.summary_metrics[metric_key_mlflow] = round(float(value), 4) if isinstance(value, (float, np.floating, np.integer)) else int(value)
         else:
             logger.warning(f"[{self.run_name_tag}] MOTMetrics summary DataFrame is empty. Metrics will be -1.")
-            for metric_name in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{metric_name.upper()}"] = -1.0 # Store as -1 if calculation fails
+            for metric_name in REQUESTED_MOT_METRICS: self.summary_metrics[f"mot_{metric_name.upper()}"] = -1.0
         
         self.metrics_calculated = True
         return True

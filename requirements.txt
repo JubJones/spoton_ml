@@ -31,3 +31,7 @@ motmetrics
 
 # Testing
 pytest
+
+# Feature extraction
+faiss-cpu
+
