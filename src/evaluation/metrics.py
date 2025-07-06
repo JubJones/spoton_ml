@@ -350,65 +350,76 @@ def calculate_frame_detection_score(
     Returns:
         A float representing the frame's score.
     """
-    pred_boxes = pred_dict["boxes"]
-    target_boxes = target_dict["boxes"]
-
-    num_preds = pred_boxes.shape[0]
-    num_targets = target_boxes.shape[0]
-
+    # Convert everything to numpy immediately to avoid named tensor issues
+    pred_boxes_np = pred_dict["boxes"].detach().cpu().numpy()
+    target_boxes_np = target_dict["boxes"].detach().cpu().numpy()
+    
+    num_preds = len(pred_boxes_np)
+    num_targets = len(target_boxes_np)
+    
     if num_targets == 0:
-        # If there are no targets, any prediction is a false positive.
-        return - (num_preds * fp_penalty)
-
+        return -float(num_preds * fp_penalty)
+    
     if num_preds == 0:
-        # If there are no predictions, any target is a false negative.
-        return - (num_targets * fn_penalty)
-
-    # Calculate pairwise IoU
-    iou_matrix = box_iou(pred_boxes, target_boxes)
-
-    # --- FIX: Remove names from the iou_matrix ---
-    if iou_matrix.names:
-        iou_matrix = iou_matrix.rename(None)
-    # --- END FIX ---
-
-    sum_of_ious = 0.0
-    matched_preds = 0
+        return -float(num_targets * fn_penalty)
     
-    # --- Corrected Greedy Matching Logic ---
-    # Iteratively find the best match (highest IoU) and remove it, 
-    # ensuring no box is matched more than once.
-    temp_iou_matrix = iou_matrix.clone()
-    
-    # --- ADDITIONAL FIX: Remove names from cloned matrix too ---
-    if temp_iou_matrix.names:
-        temp_iou_matrix = temp_iou_matrix.rename(None)
-    # --- END ADDITIONAL FIX ---
-    
-    while temp_iou_matrix.numel() > 0:
-        # Find the max IoU in the entire matrix
-        max_iou, flat_idx = temp_iou_matrix.max(dim=None)
+    # Simple IoU calculation in numpy
+    def compute_iou(box1, box2):
+        """Compute IoU between two boxes in xyxy format."""
+        x1 = max(box1[0], box2[0])
+        y1 = max(box1[1], box2[1])
+        x2 = min(box1[2], box2[2])
+        y2 = min(box1[3], box2[3])
         
-        # If best remaining IoU is below threshold, stop
+        intersection = max(0, x2 - x1) * max(0, y2 - y1)
+        area1 = (box1[2] - box1[0]) * (box1[3] - box1[1])
+        area2 = (box2[2] - box2[0]) * (box2[3] - box2[1])
+        union = area1 + area2 - intersection
+        
+        return intersection / union if union > 0 else 0.0
+    
+    # Compute IoU matrix
+    iou_matrix = np.zeros((num_preds, num_targets))
+    for i in range(num_preds):
+        for j in range(num_targets):
+            iou_matrix[i, j] = compute_iou(pred_boxes_np[i], target_boxes_np[j])
+    
+    # Simple greedy matching
+    sum_ious = 0.0
+    matched_preds = set()
+    matched_targets = set()
+    
+    # Find best matches iteratively
+    while True:
+        if len(matched_preds) == num_preds or len(matched_targets) == num_targets:
+            break
+            
+        # Find max IoU among unmatched pairs
+        max_iou = -1
+        best_i, best_j = -1, -1
+        
+        for i in range(num_preds):
+            if i in matched_preds:
+                continue
+            for j in range(num_targets):
+                if j in matched_targets:
+                    continue
+                if iou_matrix[i, j] > max_iou:
+                    max_iou = iou_matrix[i, j]
+                    best_i, best_j = i, j
+        
         if max_iou < iou_threshold:
             break
             
-        # Convert flat index to 2D indices
-        pred_idx, target_idx = np.unravel_index(flat_idx.item(), temp_iou_matrix.shape)
-        
-        # Add to score and increment match count
-        sum_of_ious += max_iou.item()
-        matched_preds += 1
-        
-        # "Remove" this pred and target from consideration by zeroing out their IoUs
-        temp_iou_matrix[pred_idx, :] = -1
-        temp_iou_matrix[:, target_idx] = -1
-    # --- End Correction ---
-
-    true_positives = matched_preds
-    false_negatives = num_targets - true_positives
-    false_positives = num_preds - true_positives
+        # Record the match
+        matched_preds.add(best_i)
+        matched_targets.add(best_j)
+        sum_ious += max_iou
     
-    score = sum_of_ious - (false_positives * fp_penalty) - (false_negatives * fn_penalty)
+    # Calculate final score
+    true_positives = len(matched_targets)
+    false_positives = num_preds - len(matched_preds)
+    false_negatives = num_targets - len(matched_targets)
     
-    return score
+    score = sum_ious - (false_positives * fp_penalty) - (false_negatives * fn_penalty)
+    return float(score)
