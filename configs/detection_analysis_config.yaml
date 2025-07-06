@@ -1,0 +1,41 @@
+mlflow_run_id: "CHANGE_ME_RUN_ID" # IMPORTANT: Replace with the MLflow Run ID of the trained model
+
+mlflow:
+  experiment_name: "MTMMC Detection Training (FasterRCNN)"
+
+environment:
+  device: "auto"
+  seed: 42
+
+data:
+  # base_path: "/Volumes/HDD/MTMMC"
+  base_path: "D:/MTMMC"
+  scenes_to_include:
+    - scene_id: "s10"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+
+  # Data subsetting for faster runs/debugging
+  # For analysis, it's often better to analyze the full validation set
+  use_data_subset: false
+  data_subset_fraction: 1.0 # Not used if use_data_subset is false
+
+  # Train/Val split
+  # The analysis will run on the VALIDATION set defined by this split ratio.
+  val_split_ratio: 0.2
+  num_workers: 2
+
+analysis:
+  # --- Analysis Parameters ---
+  output_dir: "outputs/detection_analysis" # Base directory to save visualized images
+  num_images_per_category: 20 # Number of 'best' and 'worst' images to save per camera
+  frame_sample_percent: 5.0 # Process one frame every X percent of the video. 5.0 means we check a frame every 5% of the total frames.
+  iou_threshold: 0.5 # IoU threshold for considering a detection a 'true positive' for scoring
+
+  # --- Visualization Parameters ---
+  colors:
+    ground_truth: [0, 215, 0] # Green
+    prediction: [255, 69, 58] # Red
+  font_scale: 0.8
+  thickness: 2 
