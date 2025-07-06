@@ -25,27 +25,54 @@ def run_analysis(config: Dict[str, Any], device: torch.device, project_root: Pat
     Runs the full detection analysis pipeline.
     """
     logger.info("--- Starting Detection Analysis Pipeline ---")
+    model_path = None
 
-    # 1. Setup MLflow and download the model
-    # Set up experiment to get tracking URI. No new run is created.
-    setup_mlflow_experiment(config, "Dummy")
-    run_id = config["mlflow_run_id"]
-    
-    with tempfile.TemporaryDirectory() as tmpdir:
-        model_path = download_best_model_checkpoint(run_id, Path(tmpdir))
-        if not model_path:
-            logger.critical(f"Could not download a model for run_id {run_id}. Aborting.")
+    # --- Determine model path: local file OR MLflow download ---
+    local_path_str = config.get("local_model_path")
+    if local_path_str:
+        logger.info(f"Prioritizing local model path from config: '{local_path_str}'")
+        candidate_path = project_root / local_path_str
+        if candidate_path.is_file():
+            model_path = candidate_path
+        else:
+            logger.critical(f"Local model file not found at: {candidate_path}")
+            return
+    else:
+        logger.info("Local model path not provided. Attempting MLflow download...")
+        # 1. Setup MLflow and download the model
+        setup_mlflow_experiment(config, "Dummy")
+        run_id = config.get("mlflow_run_id")
+        if not run_id:
+            logger.critical("Config error: 'local_model_path' or 'mlflow_run_id' must be provided.")
             return
 
-        # 2. Load Model
-        logger.info("Loading model architecture...")
-        model = get_fasterrcnn_model(config)
-        logger.info(f"Loading model weights from: {model_path}")
-        checkpoint = torch.load(model_path, map_location=device)
-        model.load_state_dict(checkpoint['model_state_dict'])
-        model.to(device)
-        model.eval()
-        logger.info("Model loaded and in evaluation mode.")
+        with tempfile.TemporaryDirectory() as tmpdir:
+            downloaded_path = download_best_model_checkpoint(run_id, Path(tmpdir))
+            if not downloaded_path:
+                logger.critical(f"Could not download a model for run_id {run_id}. Aborting.")
+                return
+            # The model is loaded within the temp context, so we do it here
+            model_path = downloaded_path
+
+    if not model_path:
+        logger.critical("Could not determine a valid model path. Aborting.")
+        return
+
+    # 2. Load Model
+    logger.info("Loading model architecture...")
+    model = get_fasterrcnn_model(config)
+    logger.info(f"Loading model weights from: {model_path}")
+    checkpoint = torch.load(model_path, map_location=device)
+    # Adjust for potential key mismatch if saved differently
+    state_dict_key = 'model_state_dict'
+    if state_dict_key not in checkpoint:
+        logger.warning(f"'{state_dict_key}' not in checkpoint. Assuming checkpoint is the state_dict itself.")
+        model.load_state_dict(checkpoint)
+    else:
+        model.load_state_dict(checkpoint[state_dict_key])
+    model.to(device)
+    model.eval()
+    logger.info("Model loaded and in evaluation mode.")
 
     # 3. Load Dataset
     logger.info("Loading validation dataset...")

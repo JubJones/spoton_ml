@@ -45,10 +45,13 @@ def main():
         sys.exit(1)
 
     # 2. Validate Configuration
-    if not config.get("mlflow_run_id") or config["mlflow_run_id"] == "CHANGE_ME_RUN_ID":
+    has_local_path = config.get("local_model_path")
+    has_mlflow_id = config.get("mlflow_run_id") and config["mlflow_run_id"] != "CHANGE_ME_RUN_ID"
+
+    if not has_local_path and not has_mlflow_id:
         logger.critical(
-            "Configuration error: 'mlflow_run_id' must be set in "
-            f"{config_path_str} to the MLflow Run ID of the model to be analyzed."
+            "Configuration error: Either 'local_model_path' or 'mlflow_run_id' must be set "
+            f"in {config_path_str}."
         )
         sys.exit(1)
 

@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 import mlflow
+import mlflow.artifacts
+import mlflow.exceptions
 from dotenv import load_dotenv
 from mlflow.tracking import MlflowClient
 
@@ -109,9 +111,9 @@ def download_best_model_checkpoint(run_id: str, destination_dir: Path) -> Option
     """
     Downloads the best model checkpoint from a specific MLflow run.
 
-    It searches for an artifact in the 'checkpoints' directory of the run that
-    starts with 'ckpt_best_'. If found, it downloads it to the destination
-    directory.
+    It determines the expected filename from the run's parameters and attempts
+    to download it directly. This bypasses the artifact listing API, which can
+    be problematic with some backends like DagsHub.
 
     Args:
         run_id: The ID of the MLflow run.
@@ -122,30 +124,35 @@ def download_best_model_checkpoint(run_id: str, destination_dir: Path) -> Option
     """
     logger.info(f"Attempting to download best model checkpoint for run_id: {run_id}")
     client = MlflowClient()
+    artifact_path_to_download = None
     try:
-        artifacts = client.list_artifacts(run_id, path="checkpoints")
-        best_model_artifact = None
-        for artifact in artifacts:
-            if artifact.is_dir:
-                continue
-            if Path(artifact.path).name.startswith("ckpt_best_"):
-                best_model_artifact = artifact
-                break
-
-        if not best_model_artifact:
-            logger.warning(
-                f"No 'best' model checkpoint found in 'checkpoints/' for run {run_id}. "
-                "You may need to check the artifacts in the MLflow UI."
-            )
+        run = client.get_run(run_id)
+        if not run:
+            logger.error(f"Could not find run for run_id: {run_id}")
             return None
 
-        logger.info(f"Found best model artifact: {best_model_artifact.path}")
+        # --- Determine the expected filename from run parameters ---
+        save_metric_param = run.data.params.get("training.save_best_metric")
+        if save_metric_param:
+            metric_name_in_file = save_metric_param.replace("val_", "eval_")
+            expected_filename = f"ckpt_best_{metric_name_in_file}.pth"
+            logger.info(f"Derived expected best model filename: '{expected_filename}'")
+        else:
+            logger.warning("'training.save_best_metric' param not found in run. Cannot determine model file.")
+            return None
+
+        # --- Directly attempt to download the artifact without listing first ---
+        artifact_path_to_download = os.path.join("checkpoints", expected_filename)
+        logger.info(f"Attempting to download artifact directly from path: '{artifact_path_to_download}'")
+
         destination_dir.mkdir(parents=True, exist_ok=True)
+
         local_path_str = client.download_artifacts(
             run_id=run_id,
-            path=best_model_artifact.path,
+            path=artifact_path_to_download,
             dst_path=str(destination_dir),
         )
+
         local_path = Path(local_path_str)
         if local_path.is_file():
             logger.info(f"Successfully downloaded model to: {local_path}")
@@ -154,6 +161,14 @@ def download_best_model_checkpoint(run_id: str, destination_dir: Path) -> Option
             logger.error(f"MLflow client reported download to {local_path_str}, but file not found.")
             return None
 
+    except mlflow.exceptions.RestException as e:
+        logger.error(
+            f"Failed to download model checkpoint '{artifact_path_to_download}'. "
+            f"This commonly means the artifact does not exist at that path in run {run_id}. "
+            "Please verify the file exists in the MLflow UI."
+        )
+        logger.debug(f"MLflow REST Exception: {e}", exc_info=False)
+        return None
     except Exception as e:
-        logger.error(f"Failed to download model checkpoint for run {run_id}: {e}", exc_info=True)
+        logger.error(f"An unexpected error occurred downloading checkpoint for run {run_id}: {e}", exc_info=True)
         return None
