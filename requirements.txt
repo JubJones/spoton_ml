@@ -3,6 +3,7 @@ captum
 
 # Visualization (often used with explainability)
 matplotlib
+seaborn
 
 # MLOps & Core
 mlflow

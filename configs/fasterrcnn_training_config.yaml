@@ -37,8 +37,8 @@ models_to_train:
 
     training:
       engine: "pytorch"
-      epochs: 5
-      batch_size: 2
+      epochs: 100
+      batch_size: 4
       learning_rate: 0.001
       optimizer: "AdamW"
       weight_decay: 0.005

@@ -32,7 +32,7 @@ def discover_data_assets(
         Includes only cameras with both rgb path and gt path found.
     """
     logger.info(f"Starting data discovery from base path: {base_path}")
-    train_base = base_path / "train" / "train"
+    train_base = base_path / "train"
     if not train_base.is_dir():
         raise FileNotFoundError(
             f"Train directory not found at expected path: {train_base}"

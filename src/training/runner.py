@@ -52,6 +52,9 @@ def get_fasterrcnn_model(config: Dict[str, Any]) -> FasterRCNN:
 
     try:
         weights_enum_member = getattr(FasterRCNN_ResNet50_FPN_Weights, weight_key)
+        # Temporary workaround for SSL certificate issues
+        import ssl
+        ssl._create_default_https_context = ssl._create_unverified_context
         model = torchvision.models.detection.fasterrcnn_resnet50_fpn(
             weights=weights_enum_member, trainable_backbone_layers=trainable_layers
         )

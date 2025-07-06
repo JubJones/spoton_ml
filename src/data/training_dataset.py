@@ -175,14 +175,12 @@ class MTMMCDetectionDataset(Dataset):
     def _load_data_samples(self):
         """Loads image paths and annotations from all scenes/cameras specified in config."""
         self.data_samples = []
-        unique_image_paths: Set[Path] = (
-            set()
-        )  # Prevent duplicates if cameras overlap strangely
+        unique_image_paths: Set[Path] = set()  # Prevent duplicates if cameras overlap strangely
 
         for scene_info in self.scenes_to_include:
             scene_id = scene_info["scene_id"]
             camera_ids = scene_info["camera_ids"]
-            scene_path = self.base_path / "train" / "train" / scene_id
+            scene_path = self.base_path / "train" / scene_id
             logger.info(f"Loading data from Scene: {scene_id} (Path: {scene_path})")
             if not scene_path.is_dir():
                 logger.warning(f"Scene directory not found: {scene_path}. Skipping.")
