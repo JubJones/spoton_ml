@@ -128,3 +128,67 @@ def visualize_explanation(
         logger.error(f"Failed to create visualization for {output_path.name}: {e}", exc_info=True)
         if fig is not None and plt.fignum_exists(fig.number):
             plt.close(fig)
+
+
+def save_analysis_visualization(
+    image: np.ndarray,
+    pred_boxes: torch.Tensor,
+    pred_scores: torch.Tensor,
+    gt_boxes: torch.Tensor,
+    score: float,
+    output_dir: Path,
+    base_filename: str,
+    config: dict,
+):
+    """
+    Draws ground truth and prediction boxes on an image and saves it.
+
+    Args:
+        image: The original image in RGB format (numpy array).
+        pred_boxes: Predicted bounding boxes (Tensor).
+        pred_scores: Scores for predicted boxes (Tensor).
+        gt_boxes: Ground truth bounding boxes (Tensor).
+        score: The overall performance score for the frame.
+        output_dir: The directory to save the image.
+        base_filename: The original name of the image file.
+        config: The analysis configuration dictionary for viz parameters.
+    """
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        vis_config = config.get("analysis", {}).get("visualization", {})
+        
+        # Convert RGB to BGR for OpenCV
+        img_to_draw = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        # Get visualization params from config
+        gt_color = vis_config.get("colors", {}).get("ground_truth", (0, 255, 0))
+        pred_color = vis_config.get("colors", {}).get("prediction", (0, 0, 255))
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = vis_config.get("font_scale", 0.6)
+        thickness = vis_config.get("thickness", 2)
+
+        # Draw Ground Truth boxes
+        for box in gt_boxes:
+            x1, y1, x2, y2 = map(int, box)
+            cv2.rectangle(img_to_draw, (x1, y1), (x2, y2), gt_color, thickness)
+            cv2.putText(img_to_draw, "GT", (x1, y1 - 10), font, font_scale, gt_color, thickness)
+
+        # Draw Prediction boxes
+        for box, scr in zip(pred_boxes, pred_scores):
+            x1, y1, x2, y2 = map(int, box)
+            cv2.rectangle(img_to_draw, (x1, y1), (x2, y2), pred_color, thickness)
+            label = f"Pred: {scr:.2f}"
+            cv2.putText(img_to_draw, label, (x1, y2 + 20), font, font_scale, pred_color, thickness)
+        
+        # Add overall score to the image
+        score_text = f"Frame Score: {score:.3f}"
+        cv2.putText(img_to_draw, score_text, (20, 40), font, 1.0, (255, 255, 255), 3, cv2.LINE_AA)
+        cv2.putText(img_to_draw, score_text, (20, 40), font, 1.0, (0, 0, 0), 2, cv2.LINE_AA)
+
+        # Save the image
+        new_filename = f"{Path(base_filename).stem}_score_{score:.2f}.png"
+        output_path = output_dir / new_filename
+        cv2.imwrite(str(output_path), img_to_draw)
+
+    except Exception as e:
+        logger.error(f"Failed to save visualization for {base_filename}: {e}", exc_info=True)

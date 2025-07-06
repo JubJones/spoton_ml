@@ -33,7 +33,6 @@ try:
     from boxmot.trackers.deepocsort.deepocsort import DeepOcSort
     from boxmot.trackers.ocsort.ocsort import OcSort
     from boxmot.trackers.boosttrack.boosttrack import BoostTrack
-    from boxmot.trackers.imprassoc.imprassoctrack import ImprAssocTrack
     from boxmot.trackers.basetracker import BaseTracker
 
     BOXMOT_AVAILABLE = True
@@ -44,13 +43,12 @@ try:
         'deepocsort': DeepOcSort,
         'ocsort': OcSort,
         'boosttrack': BoostTrack,
-        'imprassoc': ImprAssocTrack,
     }
 except ImportError as e:
     logging.critical(f"Failed to import BoxMOT components. Tracking functionality unavailable. Error: {e}")
     BOXMOT_AVAILABLE = False
-    StrongSort, BotSort, DeepOcSort, OcSort, BoostTrack, ImprAssocTrack, BaseTracker = (
-        None, None, None, None, None, None, None
+    StrongSort, BotSort, DeepOcSort, OcSort, BoostTrack, BaseTracker = (
+        None, None, None, None, None, None
     )
     TRACKER_CLASSES = {}
 
@@ -183,7 +181,7 @@ class TrackingReidPipeline:
 
 
                 # -- Re-ID Model --
-                if self.tracker_type in ['strongsort', 'botsort', 'deepocsort', 'boosttrack', 'imprassoc']:
+                if self.tracker_type in ['strongsort', 'botsort', 'deepocsort', 'boosttrack']:
                     reid_weights_identifier: Optional[Path] = None
                     if self.reid_weights_path_rel:
                         weights_base_dir_str = self.data_config.get("weights_base_dir", "weights/reid")

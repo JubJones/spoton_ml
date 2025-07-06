@@ -103,3 +103,57 @@ def setup_mlflow_experiment(config: Dict[str, Any], default_experiment_name: str
     except Exception as client_err:
         logger.error(f"Failed to set/get/create MLflow experiment '{experiment_name}': {client_err}", exc_info=True)
         return None
+
+
+def download_best_model_checkpoint(run_id: str, destination_dir: Path) -> Optional[Path]:
+    """
+    Downloads the best model checkpoint from a specific MLflow run.
+
+    It searches for an artifact in the 'checkpoints' directory of the run that
+    starts with 'ckpt_best_'. If found, it downloads it to the destination
+    directory.
+
+    Args:
+        run_id: The ID of the MLflow run.
+        destination_dir: The local directory where the artifact will be downloaded.
+
+    Returns:
+        The local path to the downloaded model checkpoint file, or None if not found.
+    """
+    logger.info(f"Attempting to download best model checkpoint for run_id: {run_id}")
+    client = MlflowClient()
+    try:
+        artifacts = client.list_artifacts(run_id, path="checkpoints")
+        best_model_artifact = None
+        for artifact in artifacts:
+            if artifact.is_dir:
+                continue
+            if Path(artifact.path).name.startswith("ckpt_best_"):
+                best_model_artifact = artifact
+                break
+
+        if not best_model_artifact:
+            logger.warning(
+                f"No 'best' model checkpoint found in 'checkpoints/' for run {run_id}. "
+                "You may need to check the artifacts in the MLflow UI."
+            )
+            return None
+
+        logger.info(f"Found best model artifact: {best_model_artifact.path}")
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        local_path_str = client.download_artifacts(
+            run_id=run_id,
+            path=best_model_artifact.path,
+            dst_path=str(destination_dir),
+        )
+        local_path = Path(local_path_str)
+        if local_path.is_file():
+            logger.info(f"Successfully downloaded model to: {local_path}")
+            return local_path
+        else:
+            logger.error(f"MLflow client reported download to {local_path_str}, but file not found.")
+            return None
+
+    except Exception as e:
+        logger.error(f"Failed to download model checkpoint for run {run_id}: {e}", exc_info=True)
+        return None

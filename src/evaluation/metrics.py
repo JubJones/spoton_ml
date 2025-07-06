@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List, Tuple, Dict, Optional, Any
 
 import torch
+from torchvision.ops import box_iou
 
 try:
     from torchmetrics.detection.mean_ap import MeanAveragePrecision
@@ -287,12 +288,22 @@ def compute_map_metrics(
         # Per-Class AP for Person
         if 'map_per_class' in computed_results and computed_results['map_per_class'] is not None:
             map_per_class_tensor = computed_results['map_per_class']
-            classes_tensor = computed_results.get('classes', None) # Tensor of class indices evaluated
+            classes_tensor = computed_results.get('classes', None)
 
-            if classes_tensor is not None and isinstance(classes_tensor, torch.Tensor) and \
-               isinstance(map_per_class_tensor, torch.Tensor) and \
-               classes_tensor.ndim == 1 and map_per_class_tensor.ndim == 1 and \
-               len(classes_tensor) == len(map_per_class_tensor):
+            # Handle single-class case where result might be a scalar tensor
+            if map_per_class_tensor.ndim == 0 and classes_tensor is not None and classes_tensor.ndim == 0:
+                if classes_tensor.item() == person_class_id:
+                    map_metrics["eval_ap_person"] = round(map_per_class_tensor.item(), 4)
+                else:
+                    logger.warning(
+                        f"Single class AP reported for class {classes_tensor.item()}, but expected {person_class_id}."
+                    )
+
+            # Handle multi-class case
+            elif (classes_tensor is not None and isinstance(classes_tensor, torch.Tensor) and
+                  isinstance(map_per_class_tensor, torch.Tensor) and
+                  classes_tensor.ndim == 1 and map_per_class_tensor.ndim == 1 and
+                  len(classes_tensor) == len(map_per_class_tensor)):
 
                 classes_np = classes_tensor.cpu().numpy()
                 map_per_class_np = map_per_class_tensor.cpu().numpy()
@@ -300,7 +311,7 @@ def compute_map_metrics(
 
                 if person_class_id in class_ap_map:
                     person_ap = class_ap_map[person_class_id]
-                    map_metrics["eval_ap_person"] = round(person_ap.item(), 4)
+                    map_metrics["eval_ap_person"] = round(person_ap, 4)
                 else:
                     logger.warning(f"Person class index {person_class_id} not found in computed per-class AP indices: {classes_np}")
             else:
@@ -313,3 +324,72 @@ def compute_map_metrics(
         # Return placeholders on error
         map_metrics = {k: -1.0 for k in map_metrics} # Reset all to -1.0 on error
         return map_metrics
+
+
+def calculate_frame_detection_score(
+    pred_dict: Dict[str, torch.Tensor],
+    target_dict: Dict[str, torch.Tensor],
+    iou_threshold: float,
+    fp_penalty: float = 1.0,
+    fn_penalty: float = 2.0,
+) -> float:
+    """
+    Calculates a single score for a frame's detection quality.
+
+    The score is designed to be higher for better performance. It's calculated as:
+    Score = (Sum of IoUs of matched pairs) - (FP penalty * #FPs) - (FN penalty * #FNs)
+
+    Args:
+        pred_dict: A dictionary containing predicted 'boxes' and 'scores'.
+        target_dict: A dictionary containing ground truth 'boxes'.
+        iou_threshold: The IoU threshold to consider a detection a true positive.
+        fp_penalty: The penalty to apply for each false positive.
+        fn_penalty: The penalty to apply for each false negative.
+
+    Returns:
+        A float representing the frame's score.
+    """
+    pred_boxes = pred_dict["boxes"]
+    target_boxes = target_dict["boxes"]
+    num_preds = pred_boxes.shape[0]
+    num_targets = target_boxes.shape[0]
+
+    if num_targets == 0:
+        # If there are no targets, any prediction is a false positive.
+        return - (num_preds * fp_penalty)
+
+    if num_preds == 0:
+        # If there are no predictions, any target is a false negative.
+        return - (num_targets * fn_penalty)
+
+    # Calculate pairwise IoU
+    iou_matrix = box_iou(pred_boxes, target_boxes)
+
+    # Greedily match predictions to targets
+    matched_preds = torch.zeros(num_preds, dtype=torch.bool)
+    matched_targets = torch.zeros(num_targets, dtype=torch.bool)
+    sum_of_ious = 0.0
+
+    # For each ground truth, find the best matching prediction
+    if iou_matrix.numel() > 0:
+        # Get the highest IoU for each ground truth box
+        target_max_iou, target_max_idx = iou_matrix.max(dim=0)
+
+        for target_idx, pred_idx in enumerate(target_max_idx):
+            iou = target_max_iou[target_idx]
+            if iou >= iou_threshold:
+                # This is a potential match. Check if this pred is already matched
+                # to another target with a higher IoU.
+                # This is a simple greedy approach. A more complex one would be Hungarian algorithm.
+                if not matched_preds[pred_idx]:
+                    sum_of_ious += iou.item()
+                    matched_preds[pred_idx] = True
+                    matched_targets[target_idx] = True
+
+    true_positives = matched_targets.sum().item()
+    false_negatives = num_targets - true_positives
+    false_positives = num_preds - matched_preds.sum().item()
+    
+    score = sum_of_ious - (false_positives * fp_penalty) - (false_negatives * fn_penalty)
+    
+    return score
