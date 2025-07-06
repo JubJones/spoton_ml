@@ -48,7 +48,7 @@ class FrameDataLoader:
         if not self.camera_ids:
             raise ValueError(f"Missing 'camera_ids' for selected environment '{self.selected_env}'.")
 
-        self.scene_path = self.base_path / "train" / "train" / self.scene_id
+        self.scene_path = self.base_path / "train" / self.scene_id
         if not self.scene_path.is_dir():
             raise FileNotFoundError(f"Scene directory not found at the expected path: {self.scene_path}")
         logger.info(f"Using scene path: {self.scene_path}")

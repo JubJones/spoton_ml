@@ -287,12 +287,22 @@ def compute_map_metrics(
         # Per-Class AP for Person
         if 'map_per_class' in computed_results and computed_results['map_per_class'] is not None:
             map_per_class_tensor = computed_results['map_per_class']
-            classes_tensor = computed_results.get('classes', None) # Tensor of class indices evaluated
+            classes_tensor = computed_results.get('classes', None)
 
-            if classes_tensor is not None and isinstance(classes_tensor, torch.Tensor) and \
-               isinstance(map_per_class_tensor, torch.Tensor) and \
-               classes_tensor.ndim == 1 and map_per_class_tensor.ndim == 1 and \
-               len(classes_tensor) == len(map_per_class_tensor):
+            # Handle single-class case where result might be a scalar tensor
+            if map_per_class_tensor.ndim == 0 and classes_tensor is not None and classes_tensor.ndim == 0:
+                if classes_tensor.item() == person_class_id:
+                    map_metrics["eval_ap_person"] = round(map_per_class_tensor.item(), 4)
+                else:
+                    logger.warning(
+                        f"Single class AP reported for class {classes_tensor.item()}, but expected {person_class_id}."
+                    )
+
+            # Handle multi-class case
+            elif (classes_tensor is not None and isinstance(classes_tensor, torch.Tensor) and
+                  isinstance(map_per_class_tensor, torch.Tensor) and
+                  classes_tensor.ndim == 1 and map_per_class_tensor.ndim == 1 and
+                  len(classes_tensor) == len(map_per_class_tensor)):
 
                 classes_np = classes_tensor.cpu().numpy()
                 map_per_class_np = map_per_class_tensor.cpu().numpy()
@@ -300,7 +310,7 @@ def compute_map_metrics(
 
                 if person_class_id in class_ap_map:
                     person_ap = class_ap_map[person_class_id]
-                    map_metrics["eval_ap_person"] = round(person_ap.item(), 4)
+                    map_metrics["eval_ap_person"] = round(person_ap, 4)
                 else:
                     logger.warning(f"Person class index {person_class_id} not found in computed per-class AP indices: {classes_np}")
             else:

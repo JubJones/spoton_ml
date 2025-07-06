@@ -34,7 +34,6 @@ trackers_to_run:
   - "strongsort"
   - "botsort"
   - "boosttrack"
-  - "imprassoc"
 
 # --- Re-ID Models to Associate with Trackers ---
 reid_models_to_associate:
