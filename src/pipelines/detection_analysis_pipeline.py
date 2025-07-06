@@ -143,6 +143,9 @@ def _analyze_camera(
     # Use a raw transform to get images for visualization without normalization
     vis_transform = get_transform(train=False, config={}) # Basic ToTensor transform
 
+    # Counter to ensure unique ordering in heaps when scores are equal
+    frame_counter = 0
+
     for i in tqdm(range(0, total_frames, stride), desc=f"Processing {camera_id}"):
         dataset_idx = camera_indices[i]
         
@@ -172,25 +175,27 @@ def _analyze_camera(
             "path": original_image_path,
         }
 
-        # Update best frames (min-heap)
+        # Update best frames (min-heap) - include counter to break ties
         if len(best_frames) < num_to_keep:
-            heapq.heappush(best_frames, (score, frame_data))
+            heapq.heappush(best_frames, (score, frame_counter, frame_data))
         elif score > best_frames[0][0]:
-            heapq.heappushpop(best_frames, (score, frame_data))
+            heapq.heappushpop(best_frames, (score, frame_counter, frame_data))
 
-        # Update worst frames (max-heap, storing negative score)
+        # Update worst frames (max-heap, storing negative score) - include counter to break ties
         if len(worst_frames) < num_to_keep:
-            heapq.heappush(worst_frames, (-score, frame_data))
+            heapq.heappush(worst_frames, (-score, frame_counter, frame_data))
         elif -score > worst_frames[0][0]:
-            heapq.heappushpop(worst_frames, (-score, frame_data))
+            heapq.heappushpop(worst_frames, (-score, frame_counter, frame_data))
+        
+        frame_counter += 1
 
     logger.info(f"Finished processing. Saving {len(best_frames)} best and {len(worst_frames)} worst examples.")
     
     # Save visualizations
     output_dir = Path(config["analysis"]["output_dir"])
     
-    # Save best frames
-    for score, data in sorted(best_frames, key=lambda x: x[0], reverse=True):
+    # Save best frames (extract data from 3-tuple)
+    for score, _, data in sorted(best_frames, key=lambda x: x[0], reverse=True):
         save_analysis_visualization(
             image=data["image"],
             pred_boxes=data["pred"]["boxes"],
@@ -202,8 +207,8 @@ def _analyze_camera(
             config=config,
         )
 
-    # Save worst frames (invert score back)
-    for neg_score, data in sorted(worst_frames, key=lambda x: x[0], reverse=True):
+    # Save worst frames (invert score back, extract data from 3-tuple)
+    for neg_score, _, data in sorted(worst_frames, key=lambda x: x[0], reverse=True):
         save_analysis_visualization(
             image=data["image"],
             pred_boxes=data["pred"]["boxes"],
