@@ -5,6 +5,7 @@ from typing import List, Tuple, Dict, Optional, Any
 
 import torch
 from torchvision.ops import box_iou
+import numpy as np
 
 try:
     from torchmetrics.detection.mean_ap import MeanAveragePrecision
@@ -364,31 +365,36 @@ def calculate_frame_detection_score(
 
     # Calculate pairwise IoU
     iou_matrix = box_iou(pred_boxes, target_boxes)
-
-    # Greedily match predictions to targets
-    matched_preds = torch.zeros(num_preds, dtype=torch.bool)
-    matched_targets = torch.zeros(num_targets, dtype=torch.bool)
     sum_of_ious = 0.0
+    matched_preds = 0
+    
+    # --- Corrected Greedy Matching Logic ---
+    # Iteratively find the best match (highest IoU) and remove it, 
+    # ensuring no box is matched more than once.
+    temp_iou_matrix = iou_matrix.clone()
+    while temp_iou_matrix.numel() > 0:
+        # Find the max IoU in the entire matrix
+        max_iou, flat_idx = temp_iou_matrix.max(dim=None)
+        
+        # If best remaining IoU is below threshold, stop
+        if max_iou < iou_threshold:
+            break
+            
+        # Convert flat index to 2D indices
+        pred_idx, target_idx = np.unravel_index(flat_idx.item(), temp_iou_matrix.shape)
+        
+        # Add to score and increment match count
+        sum_of_ious += max_iou.item()
+        matched_preds += 1
+        
+        # "Remove" this pred and target from consideration by zeroing out their IoUs
+        temp_iou_matrix[pred_idx, :] = -1
+        temp_iou_matrix[:, target_idx] = -1
+    # --- End Correction ---
 
-    # For each ground truth, find the best matching prediction
-    if iou_matrix.numel() > 0:
-        # Get the highest IoU for each ground truth box
-        target_max_iou, target_max_idx = iou_matrix.max(dim=0)
-
-        for target_idx, pred_idx in enumerate(target_max_idx):
-            iou = target_max_iou[target_idx]
-            if iou >= iou_threshold:
-                # This is a potential match. Check if this pred is already matched
-                # to another target with a higher IoU.
-                # This is a simple greedy approach. A more complex one would be Hungarian algorithm.
-                if not matched_preds[pred_idx]:
-                    sum_of_ious += iou.item()
-                    matched_preds[pred_idx] = True
-                    matched_targets[target_idx] = True
-
-    true_positives = matched_targets.sum().item()
+    true_positives = matched_preds
     false_negatives = num_targets - true_positives
-    false_positives = num_preds - matched_preds.sum().item()
+    false_positives = num_preds - true_positives
     
     score = sum_of_ious - (false_positives * fp_penalty) - (false_negatives * fn_penalty)
     
