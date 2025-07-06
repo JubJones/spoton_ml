@@ -352,6 +352,16 @@ def calculate_frame_detection_score(
     """
     pred_boxes = pred_dict["boxes"]
     target_boxes = target_dict["boxes"]
+
+    # --- FIX: Remove tensor names to prevent RuntimeError ---
+    # Some tensors from the dataset may have named dimensions.
+    # The .max(dim=None) call fails on named tensors.
+    if pred_boxes.names:
+        pred_boxes = pred_boxes.rename(None)
+    if target_boxes.names:
+        target_boxes = target_boxes.rename(None)
+    # --- END FIX ---
+
     num_preds = pred_boxes.shape[0]
     num_targets = target_boxes.shape[0]
 
