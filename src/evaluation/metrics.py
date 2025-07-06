@@ -353,15 +353,6 @@ def calculate_frame_detection_score(
     pred_boxes = pred_dict["boxes"]
     target_boxes = target_dict["boxes"]
 
-    # --- FIX: Remove tensor names to prevent RuntimeError ---
-    # Some tensors from the dataset may have named dimensions.
-    # The .max(dim=None) call fails on named tensors.
-    if pred_boxes.names:
-        pred_boxes = pred_boxes.rename(None)
-    if target_boxes.names:
-        target_boxes = target_boxes.rename(None)
-    # --- END FIX ---
-
     num_preds = pred_boxes.shape[0]
     num_targets = target_boxes.shape[0]
 
@@ -375,6 +366,12 @@ def calculate_frame_detection_score(
 
     # Calculate pairwise IoU
     iou_matrix = box_iou(pred_boxes, target_boxes)
+
+    # --- FIX: Remove names from the iou_matrix ---
+    if iou_matrix.names:
+        iou_matrix = iou_matrix.rename(None)
+    # --- END FIX ---
+
     sum_of_ious = 0.0
     matched_preds = 0
     
@@ -382,6 +379,12 @@ def calculate_frame_detection_score(
     # Iteratively find the best match (highest IoU) and remove it, 
     # ensuring no box is matched more than once.
     temp_iou_matrix = iou_matrix.clone()
+    
+    # --- ADDITIONAL FIX: Remove names from cloned matrix too ---
+    if temp_iou_matrix.names:
+        temp_iou_matrix = temp_iou_matrix.rename(None)
+    # --- END ADDITIONAL FIX ---
+    
     while temp_iou_matrix.numel() > 0:
         # Find the max IoU in the entire matrix
         max_iou, flat_idx = temp_iou_matrix.max(dim=None)
