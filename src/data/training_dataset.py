@@ -257,7 +257,39 @@ class MTMMCDetectionDataset(Dataset):
             )
 
     def __len__(self) -> int:
+        """Returns the number of samples in the current split."""
         return len(self.samples_split)
+
+    def get_sample_info(self, idx: int) -> Optional[Dict[str, str]]:
+        """
+        Parses the path of a sample to extract scene and camera IDs.
+
+        Args:
+            idx: The index of the sample in the current split.
+
+        Returns:
+            A dictionary with 'scene_id' and 'camera_id', or None if parsing fails.
+        """
+        if idx >= len(self):
+            return None
+        
+        path, _ = self.samples_split[idx]
+        try:
+            # Path structure is assumed to be: .../scene_id/camera_id/rgb/filename.jpg
+            camera_id = path.parent.parent.name
+            scene_id = path.parent.parent.parent.name
+            return {"scene_id": scene_id, "camera_id": camera_id}
+        except IndexError:
+            logger.warning(f"Could not parse scene/camera from path: {path}")
+            return None
+
+    def get_image_path(self, idx: int) -> Optional[Path]:
+        """Returns the filesystem path for the image at the given index."""
+        if idx >= len(self):
+            return None
+        
+        path, _ = self.samples_split[idx]
+        return path
 
     def __getitem__(self, idx: int) -> Tuple[Any, Dict[str, Any]]:
         """

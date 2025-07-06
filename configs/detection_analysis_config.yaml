@@ -1,6 +1,13 @@
 # mlflow_run_id: "CHANGE_ME_RUN_ID" # IMPORTANT: Replace with the MLflow Run ID of the trained model
 local_model_path: "checkpoints/7af7b38617994e41adbd761df223cf93/ckpt_best_eval_map_50.pth" # Or change to your local path
 
+# --- Model Architecture ---
+model:
+  type: "fasterrcnn"
+  backbone_weights: "FasterRCNN_ResNet50_FPN_Weights.DEFAULT"
+  num_classes: 2 # person + background
+  trainable_backbone_layers: 3
+
 mlflow:
   experiment_name: "MTMMC Detection Training (FasterRCNN)"
 

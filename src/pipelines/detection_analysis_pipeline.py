@@ -122,10 +122,11 @@ def _analyze_camera(
     iou_threshold = analysis_params["iou_threshold"]
 
     # Filter dataset for the current camera
-    camera_indices = [
-        i for i, info in enumerate(dataset.image_info)
-        if info['scene_id'] == scene_id and info['camera_id'] == camera_id
-    ]
+    camera_indices = []
+    for i in range(len(dataset)):
+        info = dataset.get_sample_info(i)
+        if info and info['scene_id'] == scene_id and info['camera_id'] == camera_id:
+            camera_indices.append(i)
 
     if not camera_indices:
         logger.warning(f"No validation data found for {scene_id}/{camera_id}. Skipping.")
