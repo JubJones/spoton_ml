@@ -161,19 +161,26 @@ def run_analysis(config: Dict[str, Any], device: torch.device, project_root: Pat
     logger.info(f"Loaded {len(full_val_dataset)} samples in the validation set.")
 
     # 4. Run Analysis Per Camera
-    scenes_to_analyze = config.get("data", {}).get("scenes_to_include", [])
+    logger.info("Discovering all available cameras from the dataset...")
+    all_scene_camera_pairs = set()
+    for i in range(len(full_val_dataset)):
+        info = full_val_dataset.get_sample_info(i)
+        if info:
+            all_scene_camera_pairs.add((info['scene_id'], info['camera_id']))
 
-    for scene_info in scenes_to_analyze:
-        scene_id = scene_info["scene_id"]
-        for camera_id in scene_info["camera_ids"]:
-            _analyze_camera(
-                scene_id=scene_id,
-                camera_id=camera_id,
-                model=model,
-                dataset=full_val_dataset,
-                device=device,
-                config=config,
-            )
+    sorted_pairs = sorted(list(all_scene_camera_pairs))
+    logger.info(f"Found {len(sorted_pairs)} unique scene/camera pairs. "
+                f"Ignoring 'scenes_to_include' in config and running on all.")
+
+    for scene_id, camera_id in sorted_pairs:
+        _analyze_camera(
+            scene_id=scene_id,
+            camera_id=camera_id,
+            model=model,
+            dataset=full_val_dataset,
+            device=device,
+            config=config,
+        )
 
 
 def _analyze_camera(
