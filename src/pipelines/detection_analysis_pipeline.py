@@ -4,21 +4,97 @@ Core pipeline for detection model performance analysis.
 import logging
 import tempfile
 from pathlib import Path
-from typing import Dict, Any, List, Tuple, Dict
-import heapq
+from typing import Dict, Any, List, Tuple
 
 import torch
 import cv2
 import numpy as np
+import torchvision
 from tqdm import tqdm
 
 from src.utils.mlflow_utils import download_best_model_checkpoint, setup_mlflow_experiment
 from src.training.runner import get_fasterrcnn_model, get_transform
 from src.data.training_dataset import MTMMCDetectionDataset
-from src.evaluation.metrics import calculate_frame_detection_score
-from src.explainability.visualization import save_analysis_visualization
 
 logger = logging.getLogger(__name__)
+
+
+def _save_failure_visualization(
+    image: np.ndarray,
+    missed_boxes: torch.Tensor,
+    output_dir: Path,
+    base_filename: str,
+):
+    """
+    Draws only the missed ground truth boxes on an image and saves it.
+
+    Args:
+        image: The original image in RGB format (numpy array).
+        missed_boxes: Ground truth bounding boxes that were not detected (Tensor).
+        output_dir: The directory to save the image.
+        base_filename: The original name of the image file.
+    """
+    try:
+        output_dir.mkdir(parents=True, exist_ok=True)
+        img_to_draw = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        # Define color and style for missed detections
+        purple_color_bgr = (128, 0, 128)
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        font_scale = 0.6
+        thickness = 2
+
+        # Draw missed Ground Truth boxes
+        for box in missed_boxes:
+            x1, y1, x2, y2 = map(int, box)
+            cv2.rectangle(img_to_draw, (x1, y1), (x2, y2), purple_color_bgr, thickness)
+            cv2.putText(img_to_draw, "Missed GT", (x1, y1 - 10), font, font_scale, purple_color_bgr, thickness)
+
+        # Save the image
+        new_filename = f"{Path(base_filename).stem}_failure.png"
+        output_path = output_dir / new_filename
+        cv2.imwrite(str(output_path), img_to_draw)
+
+    except Exception as e:
+        logger.error(f"Failed to save failure visualization for {base_filename}: {e}", exc_info=True)
+
+
+def _find_missed_gt_boxes(
+    pred_boxes: torch.Tensor,
+    gt_boxes: torch.Tensor,
+    iou_threshold: float
+) -> torch.Tensor:
+    """
+    Finds ground truth boxes that have no matching prediction box above the IoU threshold.
+
+    Args:
+        pred_boxes: Predicted bounding boxes (Tensor, shape [N, 4]).
+        gt_boxes: Ground truth bounding boxes (Tensor, shape [M, 4]).
+        iou_threshold: The IoU threshold for a match.
+
+    Returns:
+        A tensor of ground truth boxes that were missed.
+    """
+    if gt_boxes.shape[0] == 0:
+        return torch.empty((0, 4), dtype=gt_boxes.dtype)
+
+    if pred_boxes.shape[0] == 0:
+        return gt_boxes  # All GT boxes are missed if there are no predictions
+
+    # Calculate IoU matrix
+    iou_matrix = torchvision.ops.box_iou(gt_boxes, pred_boxes)
+
+    # If there are no predictions, all GT boxes are missed
+    if iou_matrix.shape[1] == 0:
+        return gt_boxes
+
+    # Find the max IoU for each ground truth box
+    max_ious, _ = torch.max(iou_matrix, dim=1)
+
+    # A GT box is missed if its max IoU with any prediction is below the threshold
+    missed_mask = max_ious < iou_threshold
+    return gt_boxes[missed_mask]
+
 
 def run_analysis(config: Dict[str, Any], device: torch.device, project_root: Path):
     """
@@ -90,8 +166,6 @@ def run_analysis(config: Dict[str, Any], device: torch.device, project_root: Pat
 
     # 4. Run Analysis Per Camera
     scenes_to_analyze = config.get("data", {}).get("scenes_to_include", [])
-    analysis_params = config["analysis"]
-    num_images_per_category = analysis_params["num_images_per_category"]
 
     for scene_info in scenes_to_analyze:
         scene_id = scene_info["scene_id"]
@@ -105,6 +179,7 @@ def run_analysis(config: Dict[str, Any], device: torch.device, project_root: Pat
                 config=config,
             )
 
+
 def _analyze_camera(
     scene_id: str,
     camera_id: str,
@@ -113,12 +188,10 @@ def _analyze_camera(
     device: torch.device,
     config: Dict[str, Any],
 ):
-    """Analyzes all frames for a single camera."""
-    logger.info(f"--- Analyzing Scene: {scene_id}, Camera: {camera_id} ---")
+    """Analyzes all frames for a single camera to find and save detection failures."""
+    logger.info(f"--- Analyzing Scene: {scene_id}, Camera: {camera_id} for detection failures ---")
 
     analysis_params = config["analysis"]
-    num_to_keep = analysis_params["num_images_per_category"]
-    sample_percent = analysis_params["frame_sample_percent"]
     iou_threshold = analysis_params["iou_threshold"]
 
     # Filter dataset for the current camera
@@ -132,28 +205,26 @@ def _analyze_camera(
         logger.warning(f"No validation data found for {scene_id}/{camera_id}. Skipping.")
         return
 
-    # Calculate stride for sampling
+    # Per user request, we analyze every frame, ignoring the sample percentage.
     total_frames = len(camera_indices)
-    stride = max(1, int(total_frames * (sample_percent / 100.0)))
-    logger.info(f"Found {total_frames} frames. Sampling every {stride} frames.")
+    stride = 1
+    logger.info(f"Found {total_frames} frames. Analyzing every frame (stride={stride}) to find all failures.")
 
-    best_frames = [] # Min-heap, stores (score, data)
-    worst_frames = [] # Max-heap, stores (-score, data)
-
-    # Use a raw transform to get images for visualization without normalization
-    vis_transform = get_transform(train=False, config={}) # Basic ToTensor transform
-
-    # Counter to ensure unique ordering in heaps when scores are equal
-    frame_counter = 0
+    failures_found = 0
+    output_dir = Path(config["analysis"]["output_dir"]) / scene_id / camera_id / "failures"
 
     for i in tqdm(range(0, total_frames, stride), desc=f"Processing {camera_id}"):
         dataset_idx = camera_indices[i]
-        
+
         # Get data for model input
         image_tensor, target = dataset[dataset_idx]
-        
+
         # Get data for visualization
         original_image_path = dataset.get_image_path(dataset_idx)
+        if not original_image_path:
+            logger.warning(f"Could not retrieve image path for dataset index {dataset_idx}. Skipping frame.")
+            continue
+
         original_image = cv2.imread(str(original_image_path))
         original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
 
@@ -161,61 +232,27 @@ def _analyze_camera(
         with torch.no_grad():
             prediction = model([image_tensor.to(device)])[0]
 
-        # Move prediction and target to CPU for scoring
+        # Move prediction and target to CPU
         pred_cpu = {k: v.cpu() for k, v in prediction.items()}
         target_cpu = {k: v.cpu() for k, v in target.items()}
-        
-        score = calculate_frame_detection_score(pred_cpu, target_cpu, iou_threshold)
 
-        frame_data = {
-            "image": original_image,
-            "pred": pred_cpu,
-            "gt": target_cpu,
-            "score": score,
-            "path": original_image_path,
-        }
-
-        # Update best frames (min-heap) - include counter to break ties
-        if len(best_frames) < num_to_keep:
-            heapq.heappush(best_frames, (score, frame_counter, frame_data))
-        elif score > best_frames[0][0]:
-            heapq.heappushpop(best_frames, (score, frame_counter, frame_data))
-
-        # Update worst frames (max-heap, storing negative score) - include counter to break ties
-        if len(worst_frames) < num_to_keep:
-            heapq.heappush(worst_frames, (-score, frame_counter, frame_data))
-        elif -score > worst_frames[0][0]:
-            heapq.heappushpop(worst_frames, (-score, frame_counter, frame_data))
-        
-        frame_counter += 1
-
-    logger.info(f"Finished processing. Saving {len(best_frames)} best and {len(worst_frames)} worst examples.")
-    
-    # Save visualizations
-    output_dir = Path(config["analysis"]["output_dir"])
-    
-    # Save best frames (extract data from 3-tuple)
-    for score, _, data in sorted(best_frames, key=lambda x: x[0], reverse=True):
-        save_analysis_visualization(
-            image=data["image"],
-            pred_boxes=data["pred"]["boxes"],
-            pred_scores=data["pred"]["scores"],
-            gt_boxes=data["gt"]["boxes"],
-            score=score,
-            output_dir=output_dir / scene_id / camera_id / "best",
-            base_filename=data["path"].name,
-            config=config,
+        # Find missed ground truth boxes
+        missed_gt_boxes = _find_missed_gt_boxes(
+            pred_boxes=pred_cpu["boxes"],
+            gt_boxes=target_cpu["boxes"],
+            iou_threshold=iou_threshold
         )
 
-    # Save worst frames (invert score back, extract data from 3-tuple)
-    for neg_score, _, data in sorted(worst_frames, key=lambda x: x[0], reverse=True):
-        save_analysis_visualization(
-            image=data["image"],
-            pred_boxes=data["pred"]["boxes"],
-            pred_scores=data["pred"]["scores"],
-            gt_boxes=data["gt"]["boxes"],
-            score=-neg_score,
-            output_dir=output_dir / scene_id / camera_id / "worst",
-            base_filename=data["path"].name,
-            config=config,
-        ) 
+        if len(missed_gt_boxes) > 0:
+            failures_found += 1
+            _save_failure_visualization(
+                image=original_image,
+                missed_boxes=missed_gt_boxes,
+                output_dir=output_dir,
+                base_filename=original_image_path.name,
+            )
+
+    if failures_found > 0:
+        logger.info(f"Finished processing. Found and saved {failures_found} frames with detection failures.")
+    else:
+        logger.info("Finished processing. No detection failures found for this camera.") 
