@@ -19,39 +19,37 @@ from src.data.training_dataset import MTMMCDetectionDataset
 logger = logging.getLogger(__name__)
 
 
-def _save_failure_visualization(
+def _save_failure_visualization_for_person(
     image: np.ndarray,
-    missed_boxes: torch.Tensor,
+    missed_box: torch.Tensor,
+    missed_id: int,
     output_dir: Path,
     base_filename: str,
 ):
     """
-    Draws only the missed ground truth boxes on an image and saves it.
+    Draws a single missed ground truth box on an image and saves it.
 
     Args:
         image: The original image in RGB format (numpy array).
-        missed_boxes: Ground truth bounding boxes that were not detected (Tensor).
+        missed_box: The specific ground truth bounding box that was not detected (Tensor).
+        missed_id: The ID of the missed person.
         output_dir: The directory to save the image.
-        base_filename: The original name of the image file.
+        base_filename: The base name for the output file (e.g., from the original frame).
     """
     try:
         output_dir.mkdir(parents=True, exist_ok=True)
         img_to_draw = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
 
-        # Define color and style for missed detections
         purple_color_bgr = (128, 0, 128)
         font = cv2.FONT_HERSHEY_SIMPLEX
         font_scale = 0.6
         thickness = 2
 
-        # Draw missed Ground Truth boxes
-        for box in missed_boxes:
-            x1, y1, x2, y2 = map(int, box)
-            cv2.rectangle(img_to_draw, (x1, y1), (x2, y2), purple_color_bgr, thickness)
-            cv2.putText(img_to_draw, "Missed GT", (x1, y1 - 10), font, font_scale, purple_color_bgr, thickness)
+        x1, y1, x2, y2 = map(int, missed_box.squeeze())
+        cv2.rectangle(img_to_draw, (x1, y1), (x2, y2), purple_color_bgr, thickness)
+        cv2.putText(img_to_draw, f"Missed ID: {missed_id}", (x1, y1 - 10), font, font_scale, purple_color_bgr, thickness)
 
-        # Save the image
-        new_filename = f"{Path(base_filename).stem}_failure.png"
+        new_filename = f"{Path(base_filename).stem}_id_{missed_id}_failure.png"
         output_path = output_dir / new_filename
         cv2.imwrite(str(output_path), img_to_draw)
 
@@ -59,41 +57,39 @@ def _save_failure_visualization(
         logger.error(f"Failed to save failure visualization for {base_filename}: {e}", exc_info=True)
 
 
-def _find_missed_gt_boxes(
+def _get_detection_status_by_gt_id(
     pred_boxes: torch.Tensor,
     gt_boxes: torch.Tensor,
+    gt_ids: torch.Tensor,
     iou_threshold: float
-) -> torch.Tensor:
+) -> Tuple[set, set]:
     """
-    Finds ground truth boxes that have no matching prediction box above the IoU threshold.
+    Partitions ground truth IDs from a frame into 'missed' and 'detected' sets.
 
     Args:
-        pred_boxes: Predicted bounding boxes (Tensor, shape [N, 4]).
-        gt_boxes: Ground truth bounding boxes (Tensor, shape [M, 4]).
-        iou_threshold: The IoU threshold for a match.
+        pred_boxes: Predicted bounding boxes.
+        gt_boxes: Ground truth bounding boxes.
+        gt_ids: Ground truth object IDs.
+        iou_threshold: IoU threshold for a match.
 
     Returns:
-        A tensor of ground truth boxes that were missed.
+        A tuple containing (missed_ids_set, detected_ids_set).
     """
     if gt_boxes.shape[0] == 0:
-        return torch.empty((0, 4), dtype=gt_boxes.dtype)
+        return set(), set()
 
-    if pred_boxes.shape[0] == 0:
-        return gt_boxes  # All GT boxes are missed if there are no predictions
+    all_gt_ids_in_frame = set(gt_ids.tolist())
+    detected_ids = set()
 
-    # Calculate IoU matrix
-    iou_matrix = torchvision.ops.box_iou(gt_boxes, pred_boxes)
+    if pred_boxes.shape[0] > 0:
+        iou_matrix = torchvision.ops.box_iou(gt_boxes, pred_boxes)
+        if iou_matrix.shape[1] > 0:
+            max_ious, _ = torch.max(iou_matrix, dim=1)
+            matched_mask = max_ious >= iou_threshold
+            detected_ids.update(gt_ids[matched_mask].tolist())
 
-    # If there are no predictions, all GT boxes are missed
-    if iou_matrix.shape[1] == 0:
-        return gt_boxes
-
-    # Find the max IoU for each ground truth box
-    max_ious, _ = torch.max(iou_matrix, dim=1)
-
-    # A GT box is missed if its max IoU with any prediction is below the threshold
-    missed_mask = max_ious < iou_threshold
-    return gt_boxes[missed_mask]
+    missed_ids = all_gt_ids_in_frame - detected_ids
+    return missed_ids, detected_ids
 
 
 def run_analysis(config: Dict[str, Any], device: torch.device, project_root: Path):
@@ -188,71 +184,80 @@ def _analyze_camera(
     device: torch.device,
     config: Dict[str, Any],
 ):
-    """Analyzes all frames for a single camera to find and save detection failures."""
-    logger.info(f"--- Analyzing Scene: {scene_id}, Camera: {camera_id} for detection failures ---")
+    """
+    Analyzes all frames for a single camera to find and save initial detection
+    failures for each unique person ID.
+    """
+    logger.info(f"--- Analyzing Scene: {scene_id}, Camera: {camera_id} for unique detection failures ---")
 
     analysis_params = config["analysis"]
     iou_threshold = analysis_params["iou_threshold"]
 
-    # Filter dataset for the current camera
-    camera_indices = []
-    for i in range(len(dataset)):
-        info = dataset.get_sample_info(i)
-        if info and info['scene_id'] == scene_id and info['camera_id'] == camera_id:
-            camera_indices.append(i)
+    camera_indices = [i for i, info in enumerate(dataset.get_all_sample_info())
+                      if info and info['scene_id'] == scene_id and info['camera_id'] == camera_id]
 
     if not camera_indices:
         logger.warning(f"No validation data found for {scene_id}/{camera_id}. Skipping.")
         return
 
-    # Per user request, we analyze every frame, ignoring the sample percentage.
     total_frames = len(camera_indices)
-    stride = 1
-    logger.info(f"Found {total_frames} frames. Analyzing every frame (stride={stride}) to find all failures.")
+    logger.info(f"Found {total_frames} frames. Analyzing every frame to find unique failures.")
 
-    failures_found = 0
+    failures_saved = 0
     output_dir = Path(config["analysis"]["output_dir"]) / scene_id / camera_id / "failures"
+    missed_ids_being_tracked = set()
 
-    for i in tqdm(range(0, total_frames, stride), desc=f"Processing {camera_id}"):
+    for i in tqdm(range(total_frames), desc=f"Processing {camera_id}"):
         dataset_idx = camera_indices[i]
-
-        # Get data for model input
         image_tensor, target = dataset[dataset_idx]
-
-        # Get data for visualization
         original_image_path = dataset.get_image_path(dataset_idx)
+
         if not original_image_path:
-            logger.warning(f"Could not retrieve image path for dataset index {dataset_idx}. Skipping frame.")
+            logger.warning(f"Could not retrieve image path for dataset index {dataset_idx}. Skipping.")
             continue
 
-        original_image = cv2.imread(str(original_image_path))
-        original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
-
-        # Perform inference
         with torch.no_grad():
             prediction = model([image_tensor.to(device)])[0]
 
-        # Move prediction and target to CPU
         pred_cpu = {k: v.cpu() for k, v in prediction.items()}
         target_cpu = {k: v.cpu() for k, v in target.items()}
 
-        # Find missed ground truth boxes
-        missed_gt_boxes = _find_missed_gt_boxes(
+        gt_ids = target_cpu.get("labels")
+        if gt_ids is None:
+            logger.warning(f"Frame {original_image_path.name} has no 'labels' (GT IDs). Skipping.")
+            continue
+
+        missed_this_frame, detected_this_frame = _get_detection_status_by_gt_id(
             pred_boxes=pred_cpu["boxes"],
             gt_boxes=target_cpu["boxes"],
-            iou_threshold=iou_threshold
+            gt_ids=gt_ids,
+            iou_threshold=iou_threshold,
         )
 
-        if len(missed_gt_boxes) > 0:
-            failures_found += 1
-            _save_failure_visualization(
-                image=original_image,
-                missed_boxes=missed_gt_boxes,
-                output_dir=output_dir,
-                base_filename=original_image_path.name,
-            )
+        newly_missed_ids = missed_this_frame - missed_ids_being_tracked
+        if newly_missed_ids:
+            original_image = cv2.imread(str(original_image_path))
+            original_image = cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB)
 
-    if failures_found > 0:
-        logger.info(f"Finished processing. Found and saved {failures_found} frames with detection failures.")
+            for missed_id in newly_missed_ids:
+                missed_idx_mask = (gt_ids == missed_id)
+                if torch.any(missed_idx_mask):
+                    box_to_save = target_cpu["boxes"][missed_idx_mask]
+                    _save_failure_visualization_for_person(
+                        image=original_image,
+                        missed_box=box_to_save,
+                        missed_id=missed_id,
+                        output_dir=output_dir,
+                        base_filename=original_image_path.name,
+                    )
+                    failures_saved += 1
+
+        all_gt_ids_in_frame = set(gt_ids.tolist())
+        missed_ids_being_tracked.update(newly_missed_ids)
+        missed_ids_being_tracked -= detected_this_frame
+        missed_ids_being_tracked &= all_gt_ids_in_frame
+
+    if failures_saved > 0:
+        logger.info(f"Finished processing. Saved {failures_saved} unique detection failure images.")
     else:
-        logger.info("Finished processing. No detection failures found for this camera.") 
+        logger.info("Finished processing. No new detection failures found for this camera.") 
