@@ -10,7 +10,7 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 import numpy as np
 
-from src.evaluation.metrics import compute_map_metrics, MAPPred, MAPTarget, TORCHMETRICS_AVAILABLE
+from src.components.evaluation.metrics import compute_map_metrics, MAPPred, MAPTarget, TORCHMETRICS_AVAILABLE
 
 logger = logging.getLogger(__name__)
 

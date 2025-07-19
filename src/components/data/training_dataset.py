@@ -15,7 +15,7 @@ from torchvision import tv_tensors
 from torch.utils.data import Dataset
 from torchvision.transforms import v2 as T
 
-from src.data.loader import sorted_alphanumeric
+from src.components.data.loader import sorted_alphanumeric
 
 logger = logging.getLogger(__name__)
 

@@ -8,8 +8,8 @@ from typing import Dict, Optional
 
 import torch
 
-from src.tracking_backend_logic.botsort_tracker_adapter import BotSortTrackerAdapter
-from src.tracking_backend_logic.common_types_adapter import CameraID
+from src.components.tracking.botsort_tracker_adapter import BotSortTrackerAdapter
+from src.components.tracking.common_types_adapter import CameraID
 
 logger = logging.getLogger(__name__)
 

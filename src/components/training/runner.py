@@ -22,8 +22,8 @@ from torchvision.transforms import v2 as T # Using v2 transforms
 import mlflow
 
 from src.utils.torch_utils import collate_fn, get_optimizer, get_lr_scheduler
-from src.data.training_dataset import MTMMCDetectionDataset
-from src.training.pytorch_engine import train_one_epoch, evaluate as evaluate_pytorch
+from src.components.data.training_dataset import MTMMCDetectionDataset
+from src.components.training.pytorch_engine import train_one_epoch, evaluate as evaluate_pytorch
 from src.core.runner import log_params_recursive, log_git_info
 
 logger = logging.getLogger(__name__)

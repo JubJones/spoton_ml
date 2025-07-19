@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple, Set, Any
 import numpy as np
 import yaml # Keep yaml for potential direct loading if adapter design changes
 
-from src.tracking_backend_logic.common_types_adapter import (
+from src.components.tracking.common_types_adapter import (
     CameraID,
     CameraHandoffDetailConfigAdapter,
     ExitRuleModelAdapter,

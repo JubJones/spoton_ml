@@ -13,8 +13,8 @@ import torchvision
 from tqdm import tqdm
 
 from src.utils.mlflow_utils import download_best_model_checkpoint, setup_mlflow_experiment
-from src.training.runner import get_fasterrcnn_model, get_transform
-from src.data.training_dataset import MTMMCDetectionDataset
+from src.components.training.runner import get_fasterrcnn_model, get_transform
+from src.components.data.training_dataset import MTMMCDetectionDataset
 
 logger = logging.getLogger(__name__)
 

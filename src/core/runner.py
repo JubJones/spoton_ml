@@ -16,7 +16,7 @@ from mlflow.models import infer_signature
 try:
     from src.utils.device_utils import get_selected_device
     from src.utils.reid_device_utils import get_reid_device_specifier_string
-    from src.data.loader import FrameDataLoader
+    from src.components.data.loader import FrameDataLoader
     from src.pipelines.detection_pipeline import DetectionPipeline
     from src.detection.strategies import (
         DetectionTrackingStrategy, YoloStrategy, RTDetrStrategy, FasterRCNNStrategy, RfDetrStrategy

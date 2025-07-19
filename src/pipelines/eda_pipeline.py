@@ -15,7 +15,7 @@ import cv2
 
 # --- Local Imports ---
 try:
-    from src.data.eda_loader import discover_data_assets, load_all_ground_truth, load_sample_image_data
+    from src.components.data.eda_loader import discover_data_assets, load_all_ground_truth, load_sample_image_data
 except ImportError:
     import sys
     _project_root = Path(__file__).parent.parent.parent

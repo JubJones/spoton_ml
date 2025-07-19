@@ -13,7 +13,7 @@ from torchvision.transforms import v2 as T
 import mlflow # <-- Added import
 
 # Assuming these project modules are accessible
-from src.training.runner import get_fasterrcnn_model, get_transform
+from src.components.training.runner import get_fasterrcnn_model, get_transform
 
 logger = logging.getLogger(__name__)
 
