@@ -28,7 +28,7 @@ try:
     from src.utils.device_utils import get_selected_device
     from src.utils.reproducibility import set_seed
     from src.utils.mlflow_utils import setup_mlflow_experiment
-    from src.core.runner import log_params_recursive, log_git_info
+    from src.utils.runner import log_params_recursive, log_git_info
     from src.components.inference.detector import load_trained_fasterrcnn, infer_single_image
     from src.components.training.runner import get_transform
     from src.components.explainability import (

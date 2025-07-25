@@ -21,7 +21,7 @@ try:
     from src.utils.reproducibility import set_seed
     from src.utils.logging_utils import setup_logging
     from src.utils.mlflow_utils import setup_mlflow_experiment
-    from src.core.runner import run_single_experiment, log_git_info
+    from src.utils.runner import run_single_experiment, log_git_info
 except ImportError as e:
     print(f"Error importing local modules: {e}\nPlease ensure PYTHONPATH is set correctly.")
     sys.exit(1)

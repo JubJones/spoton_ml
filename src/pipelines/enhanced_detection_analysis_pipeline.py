@@ -23,10 +23,10 @@ from tqdm import tqdm
 from src.utils.mlflow_utils import download_best_model_checkpoint, setup_mlflow_experiment
 from src.components.training.runner import get_fasterrcnn_model, get_transform
 from src.components.data.training_dataset import MTMMCDetectionDataset
-from src.analysis.enhanced_detection_analysis import EnhancedDetectionAnalyzer, SceneAnalyzer
-from src.analysis.cross_model_comparison import CrossModelComparisonSystem
-from src.analysis.advanced_metrics import AdvancedMetricsCollector
-from src.analysis.automated_reporting import AutomatedReportingSystem
+from src.components.analysis.enhanced_detection_analysis import EnhancedDetectionAnalyzer, SceneAnalyzer
+from src.components.analysis.cross_model_comparison import CrossModelComparisonSystem
+from src.components.analysis.advanced_metrics import AdvancedMetricsCollector
+from src.components.analysis.automated_reporting import AutomatedReportingSystem
 
 logger = logging.getLogger(__name__)
 

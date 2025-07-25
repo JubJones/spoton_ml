@@ -71,57 +71,76 @@ class DetectionTrackingStrategy(abc.ABC):
 
     def _warmup(self):
         """Optional warmup routine for the model."""
-        if self.model:
-            model_name = self.__class__.__name__
-            logger.info(f"Warming up {model_name} model...")
-            try:
-                warmup_h, warmup_w = 64, 64
-                dummy_frame_np = np.zeros((warmup_h, warmup_w, 3), dtype=np.uint8)
-
-                # --- Modified Warmup Logic ---
-                if isinstance(self, (YoloStrategy, RTDetrStrategy)) and hasattr(self.model, 'predict'):
-                    # Ultralytics models often take numpy/PIL directly
-                    _ = self.model.predict(dummy_frame_np, device=self.device, verbose=False)
-                    logger.info(f"{model_name} warmup complete (Ultralytics predict called).")
-
-                elif isinstance(self, FasterRCNNStrategy) and isinstance(self.model, torch.nn.Module):
-                    # FasterRCNN needs a tensor input
-                    sample_tensor = self.get_sample_input_tensor(dummy_frame_np)
-                    if sample_tensor is not None:
-                        input_list = [sample_tensor.to(self.device)] # List of 3D tensors
-                        with torch.no_grad():
-                            _ = self.model(input_list)
-                        logger.info(f"{model_name} warmup complete (PyTorch tensor input).")
-                    else: logger.warning(f"Could not get sample tensor for {model_name} warmup.")
-
-                elif isinstance(self, RfDetrStrategy) and hasattr(self.model, 'predict'):
-                     # RFDETR might take PIL
-                     dummy_pil = Image.fromarray(dummy_frame_np)
-                     _ = self.model.predict(dummy_pil)
-                     logger.info(f"{model_name} warmup complete (RFDETR predict called).")
-
-                # Fallback for other torch Modules?
-                elif isinstance(self.model, torch.nn.Module):
-                     sample_tensor = self.get_sample_input_tensor(dummy_frame_np)
-                     if sample_tensor is not None:
-                          # Assume list of 3D tensors is safer default for torch Modules
-                          input_list = [sample_tensor.to(self.device)]
-                          if sample_tensor.dim() == 3: # Ensure it's 3D
-                              with torch.no_grad():
-                                   _ = self.model(input_list)
-                              logger.info(f"{model_name} warmup complete (Generic PyTorch tensor input).")
-                          else:
-                               logger.warning(f"Sample tensor for {model_name} has unexpected dim {sample_tensor.dim()}. Skipping tensor warmup.")
-                     else: logger.warning(f"Could not get sample tensor for {model_name} warmup.")
-
+        if not self.model:
+            return
+            
+        model_name = self.__class__.__name__
+        logger.info(f"Warming up {model_name} model...")
+        
+        try:
+            dummy_frame_np = np.zeros((64, 64, 3), dtype=np.uint8)
+            
+            # Strategy-specific warmup approaches
+            warmup_success = False
+            
+            # Ultralytics models (YOLO, RT-DETR)
+            if isinstance(self, (YoloStrategy, RTDetrStrategy)) and hasattr(self.model, 'predict'):
+                self.model.predict(dummy_frame_np, device=self.device, verbose=False)
+                logger.info(f"{model_name} warmup complete (Ultralytics predict)")
+                warmup_success = True
+                
+            # RF-DETR models
+            elif isinstance(self, RfDetrStrategy) and hasattr(self.model, 'predict'):
+                dummy_pil = Image.fromarray(dummy_frame_np)
+                self.model.predict(dummy_pil)
+                logger.info(f"{model_name} warmup complete (RFDETR predict)")
+                warmup_success = True
+                
+            # PyTorch models (FasterRCNN, etc.)
+            elif isinstance(self.model, torch.nn.Module):
+                sample_tensor = self.get_sample_input_tensor(dummy_frame_np)
+                if sample_tensor is not None and sample_tensor.dim() == 3:
+                    input_list = [sample_tensor.to(self.device)]
+                    with torch.no_grad():
+                        self.model(input_list)
+                    logger.info(f"{model_name} warmup complete (PyTorch tensor input)")
+                    warmup_success = True
                 else:
-                     logger.warning(f"Cannot determine appropriate warmup method for {model_name}. Trying process_frame.")
-                     # Fallback attempt using process_frame (might fail as seen before)
-                     try: _ = self.process_frame(dummy_frame_np)
-                     except Exception as pf_err: logger.warning(f"Warmup fallback process_frame failed: {pf_err}")
-
-            except Exception as e:
-                logger.warning(f"Warmup failed for {model_name}: {e}", exc_info=True)
+                    logger.warning(f"Could not get valid sample tensor for {model_name} warmup")
+            
+            # Fallback to process_frame if other methods failed
+            if not warmup_success:
+                logger.warning(f"Standard warmup failed for {model_name}, trying process_frame fallback")
+                try:
+                    self.process_frame(dummy_frame_np)
+                    logger.info(f"{model_name} warmup complete (process_frame fallback)")
+                except Exception as pf_err:
+                    logger.warning(f"Warmup fallback process_frame failed: {pf_err}")
+                    
+        except Exception as e:
+            logger.warning(f"Warmup failed for {model_name}: {e}", exc_info=True)
+    
+    def _process_ultralytics_results(self, results, model_name: str) -> DetectionResult:
+        """Common processing logic for Ultralytics models (YOLO, RT-DETR)."""
+        boxes_xywh, track_ids, confidences = [], [], []
+        
+        if results and results[0].boxes:
+            res = results[0].boxes
+            if hasattr(res, 'xywh') and res.xywh is not None:
+                boxes_xywh = res.xywh.cpu().numpy().tolist()
+            if hasattr(res, 'conf') and res.conf is not None:
+                confidences = res.conf.cpu().numpy().tolist()
+            else:
+                confidences = [self.confidence_threshold] * len(boxes_xywh)
+            track_ids = [self.placeholder_track_id] * len(boxes_xywh)
+            
+            # Ensure all lists have the same length
+            min_len = min(len(boxes_xywh), len(track_ids), len(confidences))
+            boxes_xywh = boxes_xywh[:min_len]
+            track_ids = track_ids[:min_len]
+            confidences = confidences[:min_len]
+        
+        return boxes_xywh, track_ids, confidences
 
 
 class YoloStrategy(DetectionTrackingStrategy):
@@ -134,18 +153,13 @@ class YoloStrategy(DetectionTrackingStrategy):
         except Exception as e: logger.error(f"YOLO load failed: {e}"); raise
 
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
-        boxes_xywh, track_ids, confidences = [], [], []
         try:
-            results = self.model.predict(frame, classes=[self.person_class_id], conf=self.confidence_threshold, device=self.device, verbose=False)
-            if results and results[0].boxes:
-                res = results[0].boxes
-                if hasattr(res, 'xywh') and res.xywh is not None: boxes_xywh = res.xywh.cpu().numpy().tolist()
-                if hasattr(res, 'conf') and res.conf is not None: confidences = res.conf.cpu().numpy().tolist()
-                else: confidences = [self.confidence_threshold] * len(boxes_xywh)
-                track_ids = [self.placeholder_track_id] * len(boxes_xywh)
-                min_len = min(len(boxes_xywh), len(track_ids), len(confidences)); boxes_xywh=boxes_xywh[:min_len]; track_ids=track_ids[:min_len]; confidences=confidences[:min_len]
-        except Exception as e: logger.error(f"YOLO process error: {e}", exc_info=True); return [], [], []
-        return boxes_xywh, track_ids, confidences
+            results = self.model.predict(frame, classes=[self.person_class_id], 
+                                       conf=self.confidence_threshold, device=self.device, verbose=False)
+            return self._process_ultralytics_results(results, "YOLO")
+        except Exception as e:
+            logger.error(f"YOLO process error: {e}", exc_info=True)
+            return [], [], []
 
     # get_sample_input_tensor uses generic fallback which is suitable
 
@@ -160,18 +174,13 @@ class RTDetrStrategy(DetectionTrackingStrategy):
         except Exception as e: logger.error(f"RT-DETR load failed: {e}"); raise
 
     def process_frame(self, frame: np.ndarray) -> DetectionResult:
-        boxes_xywh, track_ids, confidences = [], [], []
         try:
-            results = self.model.predict(frame, classes=[self.person_class_id], conf=self.confidence_threshold, device=self.device, verbose=False)
-            if results and results[0].boxes:
-                res = results[0].boxes
-                if hasattr(res, 'xywh') and res.xywh is not None: boxes_xywh = res.xywh.cpu().numpy().tolist()
-                if hasattr(res, 'conf') and res.conf is not None: confidences = res.conf.cpu().numpy().tolist()
-                else: confidences = [self.confidence_threshold] * len(boxes_xywh)
-                track_ids = [self.placeholder_track_id] * len(boxes_xywh)
-                min_len = min(len(boxes_xywh), len(track_ids), len(confidences)); boxes_xywh=boxes_xywh[:min_len]; track_ids=track_ids[:min_len]; confidences=confidences[:min_len]
-        except Exception as e: logger.error(f"RT-DETR process error: {e}", exc_info=True); return [], [], []
-        return boxes_xywh, track_ids, confidences
+            results = self.model.predict(frame, classes=[self.person_class_id], 
+                                       conf=self.confidence_threshold, device=self.device, verbose=False)
+            return self._process_ultralytics_results(results, "RT-DETR")
+        except Exception as e:
+            logger.error(f"RT-DETR process error: {e}", exc_info=True)
+            return [], [], []
 
     # get_sample_input_tensor uses generic fallback
 

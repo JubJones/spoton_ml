@@ -1,0 +1,116 @@
+parent_run_name: "tracking_failure_analysis_comprehensive"
+
+mlflow:
+  experiment_name: "Tracking Failure Analysis (Phase 2.1)"
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+
+data:
+  base_path: "D:/MTMMC"
+  # base_path: "/Volumes/HDD/MTMMC"
+  
+  weights_base_dir: "weights/reid"
+  
+  # Environment / Scene Selection
+  selected_environment: "factory" # Options: "factory", "campus"
+  
+  # Scene Specific Settings
+  campus:
+    scene_id: "s47"
+    camera_ids: ["c01", "c02", "c03", "c05"]
+    max_frames_per_camera: 100  # Limit for analysis
+  
+  factory:
+    scene_id: "s10"
+    camera_ids: ["c09", "c12", "c13", "c16"]
+    max_frames_per_camera: 100  # Limit for analysis
+
+# Trackers to analyze for failure patterns
+trackers_to_analyze:
+  - "deepocsort"
+  - "strongsort"
+  - "botsort"
+  - "ocsort"
+  - "boosttrack"
+
+# Re-ID Models to associate with trackers
+reid_models_to_associate:
+  # CLIP ViT Models
+  - model_type: "clip"
+    weights_path: "clip_duke.pt"
+  - model_type: "clip"
+    weights_path: "clip_market1501.pt"
+  
+  # LMBN Models
+  - model_type: "lmbn_n"
+    weights_path: "lmbn_n_duke.pt"
+  
+  # OSNet Models
+  - model_type: "osnet_ibn_x1_0"
+    weights_path: "osnet_ibn_x1_0_msmt17.pt"
+  - model_type: "osnet_ain_x1_0"
+    weights_path: "osnet_ain_x1_0_msmt17.pt"
+  
+  # MobileNetV2 Models
+  - model_type: "mobilenetv2_x1_4"
+    weights_path: "mobilenetv2_x1_4_market1501.pt"
+
+# Tracking analysis specific configuration
+tracking_analysis:
+  # ID switch detection parameters
+  id_switch_threshold: 0.5
+  id_switch_lookback_frames: 3
+  
+  # Trajectory gap detection
+  trajectory_gap_threshold: 5  # frames
+  min_trajectory_length: 10   # minimum frames for valid trajectory
+  
+  # Quality analysis parameters
+  iou_threshold: 0.5          # for GT-prediction matching
+  confidence_threshold: 0.1   # minimum confidence for predictions
+  
+  # Failure visualization settings
+  save_failure_images: true
+  max_failure_images_per_type: 50
+  failure_image_scale_factor: 1.0
+  
+  # Analysis scope
+  analyze_per_camera: true
+  analyze_temporal_patterns: true
+  generate_heatmaps: true
+  
+  # Output settings
+  generate_detailed_report: true
+  save_raw_results: true
+  create_visualizations: true
+
+# Evaluation settings
+evaluation:
+  person_class_id: 0
+  
+  # Metrics to calculate
+  calculate_mot_metrics: true
+  calculate_reid_metrics: true
+  calculate_failure_metrics: true
+  
+  # Comparison settings
+  compare_trackers: true
+  rank_by_metric: "idf1"  # Primary ranking metric
+
+# Output configuration
+output:
+  base_output_dir: "analysis_outputs/tracking_failure_analysis"
+  create_timestamp_dirs: true
+  save_intermediate_results: true
+  
+  # Report generation
+  generate_html_report: true
+  include_plots: true
+  include_failure_examples: true
+  
+  # MLflow logging
+  log_artifacts: true
+  log_plots: true
+  log_failure_analysis: true

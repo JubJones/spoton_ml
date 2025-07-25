@@ -24,8 +24,8 @@ import seaborn as sns
 from scipy import stats
 import pandas as pd
 
-from src.detection.strategies import get_strategy, DetectionTrackingStrategy
-from src.analysis.enhanced_detection_analysis import (
+from src.components.detection.strategies import get_strategy, DetectionTrackingStrategy
+from src.components.analysis.enhanced_detection_analysis import (
     SceneContext, DetectionFailure, SceneAnalyzer, EnhancedDetectionAnalyzer
 )
 

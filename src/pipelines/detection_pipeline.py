@@ -18,7 +18,7 @@ from src.components.evaluation.metrics import (
     MAPTarget
 )
 # --- End Correction ---
-from src.detection.strategies import get_strategy, DetectionTrackingStrategy
+from src.components.detection.strategies import get_strategy, DetectionTrackingStrategy
 
 logger = logging.getLogger(__name__)
 

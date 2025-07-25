@@ -18,7 +18,7 @@ try:
     from src.utils.reid_device_utils import get_reid_device_specifier_string
     from src.components.data.loader import FrameDataLoader
     from src.pipelines.detection_pipeline import DetectionPipeline
-    from src.detection.strategies import (
+    from src.components.detection.strategies import (
         DetectionTrackingStrategy, YoloStrategy, RTDetrStrategy, FasterRCNNStrategy, RfDetrStrategy
     )
     from src.pipelines.tracking_reid_pipeline import TrackingReidPipeline, TrackingResultSummary
@@ -32,9 +32,9 @@ except ImportError:
     from utils.device_utils import get_selected_device
     from utils.reid_device_utils import get_reid_device_specifier_string # Renamed util file
     # Detection Imports
-    from data.loader import FrameDataLoader
+    from components.data.loader import FrameDataLoader
     from pipelines.detection_pipeline import DetectionPipeline
-    from tracking.strategies import (
+    from components.detection.strategies import (
         DetectionTrackingStrategy, YoloStrategy, RTDetrStrategy, FasterRCNNStrategy, RfDetrStrategy
     )
     # Tracking+ReID Imports

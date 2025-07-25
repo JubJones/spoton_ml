@@ -24,7 +24,7 @@ try:
     from src.utils.logging_utils import setup_logging
     from src.utils.mlflow_utils import setup_mlflow_experiment
     from src.utils.device_utils import get_selected_device
-    from src.core.runner import log_params_recursive, log_metrics_dict, log_git_info
+    from src.utils.runner import log_params_recursive, log_metrics_dict, log_git_info
     from src.pipelines.backend_style_tracking_reid_pipeline import BackendStyleTrackingReidPipeline, TrackingReidResultSummary
 except ImportError as e:
     print(f"Error importing local modules in {Path(__file__).name}: {e}")
