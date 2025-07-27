@@ -33,55 +33,55 @@ This document outlines a focused per-scenario/camera detection analysis plan for
 - ✅ **Device**: CPU (FasterRCNN constraint)
 
 #### 1.1.2 Scenario/Camera Coverage Analysis
-- [ ] **Complete Coverage**: Run model on all scene/camera combinations in MTMMC dataset
-- [ ] **Performance Mapping**: Generate performance metrics per scenario/camera pair
-- [ ] **Environmental Correlation**: Identify which environments show good/poor performance
-- [ ] **Failure Pattern Identification**: Collect failure cases with scene context
+- [x] **Complete Coverage**: Run model on all scene/camera combinations in MTMMC dataset
+- [x] **Performance Mapping**: Generate performance metrics per scenario/camera pair
+- [x] **Environmental Correlation**: Identify which environments show good/poor performance
+- [x] **Failure Pattern Identification**: Collect failure cases with scene context
 
 #### 1.1.3 Selective Failure Collection Strategy
-- [ ] **Per-Person ID Sampling**: Save only 1 representative failure image per person ID
-- [ ] **Failure Criteria**: Ground truth comparison with IoU threshold
-- [ ] **Scene Context**: Include lighting conditions, crowd density, occlusion analysis
-- [ ] **Image Organization**: Structure failure images by scene/camera/person_id
+- [x] **Per-Person ID Sampling**: Save only 1 representative failure image per person ID
+- [x] **Failure Criteria**: Ground truth comparison with IoU threshold
+- [x] **Scene Context**: Include lighting conditions, crowd density, occlusion analysis
+- [x] **Image Organization**: Structure failure images by scene/camera/person_id
 
 #### 1.1.4 Environmental Performance Analysis
-- [ ] **Lighting Conditions**: Analyze performance across day/night/transition
-- [ ] **Crowd Density**: Evaluate detection accuracy in low/medium/high density scenarios
-- [ ] **Camera Perspectives**: Identify which camera angles/positions perform best/worst
-- [ ] **Scene Complexity**: Correlate scene complexity with detection performance
+- [x] **Lighting Conditions**: Analyze performance across day/night/transition
+- [x] **Crowd Density**: Evaluate detection accuracy in low/medium/high density scenarios
+- [x] **Camera Perspectives**: Identify which camera angles/positions perform best/worst
+- [x] **Scene Complexity**: Correlate scene complexity with detection performance
 
 ### 1.2 Failure Case Documentation
 **Objective**: Comprehensive documentation of detection failures
 
 #### 1.2.1 Failure Image Collection
-- [ ] **1-Per-Person Rule**: Collect maximum 1 failure image per person ID per scenario/camera
-- [ ] **Representative Selection**: Choose most representative failure case if multiple exist
-- [ ] **Dual Bounding Box Visualization**: 
+- [x] **1-Per-Person Rule**: Collect maximum 1 failure image per person ID per scenario/camera
+- [x] **Representative Selection**: Choose most representative failure case if multiple exist
+- [x] **Dual Bounding Box Visualization**: 
   - **Ground Truth Boxes**: Display in RED color for missed detections
   - **Detected Boxes**: Display in BLUE color for all model predictions
   - **Color Coding**: Clear visual distinction between ground truth and predictions
-- [ ] **Contextual Information**: Include scene conditions, frame metadata, failure reason
+- [x] **Contextual Information**: Include scene conditions, frame metadata, failure reason
 
 #### 1.2.2 Failure Analysis Framework
-- [ ] **Failure Classification**: Categorize failures by type (occlusion, lighting, distance, etc.)
-- [ ] **Statistical Analysis**: Generate failure rate statistics per scenario/camera
-- [ ] **Performance Heatmaps**: Create visual performance maps across all combinations
-- [ ] **Improvement Recommendations**: Identify specific areas for model enhancement
+- [x] **Failure Classification**: Categorize failures by type (occlusion, lighting, distance, etc.)
+- [x] **Statistical Analysis**: Generate failure rate statistics per scenario/camera
+- [x] **Performance Heatmaps**: Create visual performance maps across all combinations
+- [x] **Improvement Recommendations**: Identify specific areas for model enhancement
 
 ### 1.3 Results and Reporting
 **Objective**: Comprehensive analysis documentation and insights
 
 #### 1.3.1 Performance Summary Generation
-- [ ] **Scenario Performance Matrix**: Performance metrics for each scene/camera combination
-- [ ] **Best/Worst Environment Identification**: Highlight top and bottom performing environments
-- [ ] **Failure Pattern Analysis**: Identify common failure patterns across scenarios
-- [ ] **Environmental Correlation Analysis**: Link performance to environmental factors
+- [x] **Scenario Performance Matrix**: Performance metrics for each scene/camera combination
+- [x] **Best/Worst Environment Identification**: Highlight top and bottom performing environments
+- [x] **Failure Pattern Analysis**: Identify common failure patterns across scenarios
+- [x] **Environmental Correlation Analysis**: Link performance to environmental factors
 
 #### 1.3.2 Actionable Insights
-- [ ] **Environment-Specific Recommendations**: Suggest improvements for poor-performing scenarios
-- [ ] **Training Data Insights**: Identify underrepresented scenarios in training
-- [ ] **Model Limitation Analysis**: Document specific model weaknesses
-- [ ] **Deployment Recommendations**: Suggest optimal deployment environments
+- [x] **Environment-Specific Recommendations**: Suggest improvements for poor-performing scenarios
+- [x] **Training Data Insights**: Identify underrepresented scenarios in training
+- [x] **Model Limitation Analysis**: Document specific model weaknesses
+- [x] **Deployment Recommendations**: Suggest optimal deployment environments
 
 ---
 
@@ -131,10 +131,10 @@ outputs/enhanced_detection_analysis/
 4. **Performance Mapping**: Generate scenario/camera performance matrix
 
 ### Success Metrics
-- [ ] **Complete Coverage**: Analysis completed for all scene/camera combinations
-- [ ] **Failure Documentation**: 1 representative failure image collected per person ID
-- [ ] **Performance Insights**: Clear identification of best/worst performing environments
-- [ ] **Actionable Recommendations**: Specific improvement suggestions for poor-performing scenarios
+- [x] **Complete Coverage**: Analysis completed for all scene/camera combinations
+- [x] **Failure Documentation**: 1 representative failure image collected per person ID
+- [x] **Performance Insights**: Clear identification of best/worst performing environments
+- [x] **Actionable Recommendations**: Specific improvement suggestions for poor-performing scenarios
 
 ### Timeline
 - **Setup and Configuration**: 1-2 days
