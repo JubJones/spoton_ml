@@ -1,0 +1,87 @@
+
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Phase 1 Detection Analysis Report</title>
+            <style>
+                body { font-family: Arial, sans-serif; margin: 20px; }
+                .header { background-color: #f0f0f0; padding: 20px; border-radius: 5px; }
+                .section { margin: 20px 0; padding: 15px; border-left: 4px solid #007acc; }
+                .metric { background-color: #f9f9f9; padding: 10px; margin: 10px 0; border-radius: 3px; }
+                .good { background-color: #e6ffe6; }
+                .bad { background-color: #ffe6e6; }
+                table { border-collapse: collapse; width: 100%; }
+                th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+                th { background-color: #f2f2f2; }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <h1>Phase 1: Per-Scenario/Camera Detection Analysis Report</h1>
+                <p>Generated: 2025-07-27 21:01:56</p>
+                <p>Model: FasterRCNN (trained)</p>
+                <p>Checkpoint: checkpoints/7af7b38617994e41adbd761df223cf93/ckpt_best_eval_map_50.pth</p>
+            </div>
+            
+            <div class="section">
+                <h2>Executive Summary</h2>
+                <div class="metric">
+                    <strong>Total Scenarios Analyzed:</strong> 8
+                </div>
+                <div class="metric">
+                    <strong>Total Unique Failures Collected:</strong> 8
+                </div>
+                <div class="metric">
+                    <strong>Average Precision:</strong> 0.958
+                </div>
+                <div class="metric">
+                    <strong>Average Recall:</strong> 0.928
+                </div>
+                <div class="metric">
+                    <strong>Average F1 Score:</strong> 0.943
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>Best and Worst Performing Environments</h2>
+                
+                <div class="metric good">
+                    <h3>Best Performing: s10/c16</h3>
+                    <p>Precision: 1.026 | Recall: 0.960 | F1: 0.992</p>
+                </div>
+                
+                <div class="metric bad">
+                    <h3>Worst Performing: s10/c12</h3>
+                    <p>Precision: 0.850 | Recall: 0.851 | F1: 0.851</p>
+                </div>
+            </div>
+            
+            <div class="section">
+                <h2>Environmental Analysis</h2>
+                <h3>Failures by Lighting Condition</h3>
+                <h4>Lighting Conditions</h4><ul><li>Day: 4 failures</li><li>Transition: 4 failures</li></ul><h4>Crowd Density</h4><ul><li>High: 1 failures</li><li>Low: 3 failures</li><li>Medium: 4 failures</li></ul>
+            </div>
+            
+            <div class="section">
+                <h2>Key Findings</h2>
+                <ul>
+                    <li>Analyzed 8 different scenario/camera combinations</li>
+                    <li>Collected 8 unique failure cases (1 per person ID)</li>
+                    <li>Best performance in s10/c16 with F1=0.992</li>
+                    <li>Worst performance in s10/c12 with F1=0.851</li>
+                    <li>Failure images saved with dual-color visualization (RED=GT, BLUE=Detected)</li>
+                </ul>
+            </div>
+            
+            <div class="section">
+                <h2>Recommendations</h2>
+                <ul>
+                    <li>Focus improvement efforts on s10/c12 scenario</li>
+                    <li>Review training data for underrepresented lighting conditions</li>
+                    <li>Consider data augmentation for poor-performing scenarios</li>
+                    <li>Investigate camera-specific calibration issues</li>
+                </ul>
+            </div>
+        </body>
+        </html>
+        
