@@ -123,7 +123,7 @@ class Phase1DetectionAnalyzer:
         logger.info("Loading FasterRCNN model from checkpoint...")
         
         # Load model architecture
-        model = get_fasterrcnn_model(self.config.get("model", {}))
+        model = get_fasterrcnn_model(self.config)
         
         # Load weights from checkpoint
         checkpoint_path = self.config.get("local_model_path")
