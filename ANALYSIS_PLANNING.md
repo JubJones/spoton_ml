@@ -2,325 +2,152 @@
 
 ## Executive Summary
 
-This document outlines a comprehensive multi-phase analysis plan for the MTMMC vision pipeline, covering detection, tracking, and re-identification models. The goal is to identify performance bottlenecks, failure patterns, and specific scenarios where models underperform, providing actionable insights for systematic improvement.
+This document outlines a focused per-scenario/camera detection analysis plan for the MTMMC vision pipeline using a single trained detection model. The goal is to identify detection performance across different environmental conditions and camera setups, collecting failure cases with 1 representative image per person ID that failed detection for detailed analysis.
 
 ## Current State Assessment
 
 ### Existing Capabilities
-- ✅ Basic detection analysis pipeline (`run_detection_analysis.py`)
-- ✅ Multiple detection strategies (YOLO, RT-DETR, Faster R-CNN, RF-DETR)
-- ✅ Tracking with BoxMOT integration
-- ✅ Re-ID model support with weight management
-- ✅ MLflow experiment tracking
+- ✅ Enhanced detection analysis pipeline (`src/pipelines/enhanced_detection_analysis.py`)
+- ✅ Trained FasterRCNN model checkpoint: `checkpoints/7af7b38617994e41adbd761df223cf93/ckpt_best_eval_map_50.pth`
 - ✅ MTMMC dataset loading with scene/camera management
+- ✅ MLflow experiment tracking
+- ✅ Failure case visualization and reporting
 
-### Current Limitations
-- ❌ Analysis focuses only on unique detection failures per person ID
-- ❌ Limited contextual analysis (lighting, crowd density, occlusion patterns)
-- ❌ No temporal analysis of failure patterns
-- ❌ No cross-model comparison for failure cases
-- ❌ Missing tracking and re-ID failure analysis
-- ❌ No systematic root cause analysis framework
-
----
-
-## PHASE 1: Enhanced Detection Analysis
-
-### 1.1 Failure Pattern Detection and Classification
-**Objective**: Systematic identification and categorization of detection failures
-
-#### 1.1.1 Multi-Dimensional Failure Analysis
-- [ ] Implement scene-aware failure detection
-  - [ ] Analyze failure rates by lighting conditions (day/night/transition)
-  - [ ] Categorize failures by crowd density levels
-  - [ ] Identify occlusion-related failure patterns
-  - [ ] Detect distance-based performance degradation
-
-#### 1.1.2 Temporal Failure Pattern Analysis
-- [ ] Track person detection consistency across consecutive frames
-- [ ] Identify intermittent detection failures (flickering)
-- [ ] Analyze detection stability during movement transitions
-- [ ] Map failure patterns to specific time periods
-
-#### 1.1.3 Enhanced Failure Visualization System
-- [ ] Implement multi-layered failure image generation
-  - [ ] Overlay ground truth bounding boxes with confidence scores
-  - [ ] Add contextual information (frame number, timestamp, scene conditions)
-  - [ ] Include nearest successful detection for comparison
-  - [ ] Generate failure heatmaps per camera view
-
-#### 1.1.4 Statistical Failure Analysis
-- [ ] Generate per-camera failure rate statistics
-- [ ] Create failure distribution charts by person ID
-- [ ] Analyze correlation between person characteristics and failure rates
-- [ ] Build failure prediction models based on scene conditions
-
-### 1.2 Cross-Model Detection Comparison
-**Objective**: Comparative analysis across all detection models
-
-#### 1.2.1 Model Performance Matrix
-- [ ] Run identical test sets across all detection strategies
-- [ ] Generate side-by-side failure comparison visualizations
-- [ ] Identify model-specific failure patterns
-- [ ] Create model recommendation matrix by scenario type
-
-#### 1.2.2 Ensemble Analysis Opportunities
-- [ ] Identify cases where models have complementary strengths
-- [ ] Analyze agreement/disagreement patterns between models
-- [ ] Generate ensemble opportunity maps
-- [ ] Design hybrid detection strategies
-
-### 1.3 Advanced Detection Metrics and Reporting
-**Objective**: Comprehensive detection performance measurement
-
-#### 1.3.1 Enhanced Metrics Collection
-- [ ] Implement fine-grained mAP analysis (by distance, size, occlusion)
-- [ ] Add precision-recall curves per scenario type
-- [ ] Generate confidence score distribution analysis
-- [ ] Track detection latency and throughput metrics
-
-#### 1.3.2 Automated Report Generation
-- [ ] Create detailed HTML analysis reports
-- [ ] Generate executive summary dashboards
-- [ ] Build trend analysis charts
-- [ ] Implement alert system for performance degradation
+### Target Analysis Scope
+- 🎯 **Single Model Analysis**: Focus on the existing trained FasterRCNN model
+- 🎯 **Per-Scenario/Camera Analysis**: Evaluate performance across all scene/camera combinations
+- 🎯 **Selective Failure Collection**: Save 1 representative image per person ID that failed detection
+- 🎯 **Environmental Performance Mapping**: Identify which environments the model performs well/poorly
 
 ---
 
-## PHASE 2: Tracking Performance Analysis
+## PHASE 1: Per-Scenario/Camera Detection Analysis
 
-### 2.1 Tracking Failure Detection and Analysis
-**Objective**: Systematic analysis of tracking pipeline failures
+### 1.1 Single Model Comprehensive Analysis
+**Objective**: Evaluate trained FasterRCNN model performance across all scenarios/cameras
 
-#### 2.1.1 Identity Consistency Analysis
-- [x] Implement ID switching detection and visualization
-- [x] Track person trajectory consistency across cameras
-- [x] Analyze re-identification accuracy in multi-camera scenarios
-- [x] Identify temporal gaps in tracking continuity
+#### 1.1.1 Model Configuration
+- ✅ **Pre-trained Model**: `checkpoints/7af7b38617994e41adbd761df223cf93/ckpt_best_eval_map_50.pth`
+- ✅ **Model Type**: FasterRCNN (torchvision implementation)
+- ✅ **Analysis Pipeline**: `src/pipelines/enhanced_detection_analysis.py`
+- ✅ **Device**: CPU (FasterRCNN constraint)
 
-#### 2.1.2 Tracking Quality Metrics Implementation
-- [x] Add IDF1, HOTA, and MOTA metrics calculation
-- [x] Implement trajectory quality scoring
-- [x] Generate tracking stability reports
-- [x] Create cross-camera handoff success rate analysis
+#### 1.1.2 Scenario/Camera Coverage Analysis
+- [ ] **Complete Coverage**: Run model on all scene/camera combinations in MTMMC dataset
+- [ ] **Performance Mapping**: Generate performance metrics per scenario/camera pair
+- [ ] **Environmental Correlation**: Identify which environments show good/poor performance
+- [ ] **Failure Pattern Identification**: Collect failure cases with scene context
 
-#### 2.1.3 Tracker-Specific Performance Analysis
-- [x] Compare performance across different BoxMOT trackers
-- [x] Analyze tracker behavior under various scene conditions
-- [x] Identify optimal tracker configurations per scenario
-- [x] Generate tracker recommendation matrix
+#### 1.1.3 Selective Failure Collection Strategy
+- [ ] **Per-Person ID Sampling**: Save only 1 representative failure image per person ID
+- [ ] **Failure Criteria**: Ground truth comparison with IoU threshold
+- [ ] **Scene Context**: Include lighting conditions, crowd density, occlusion analysis
+- [ ] **Image Organization**: Structure failure images by scene/camera/person_id
 
-### 2.2 Multi-Camera Tracking Analysis
-**Objective**: Analysis of cross-camera tracking performance
+#### 1.1.4 Environmental Performance Analysis
+- [ ] **Lighting Conditions**: Analyze performance across day/night/transition
+- [ ] **Crowd Density**: Evaluate detection accuracy in low/medium/high density scenarios
+- [ ] **Camera Perspectives**: Identify which camera angles/positions perform best/worst
+- [ ] **Scene Complexity**: Correlate scene complexity with detection performance
 
-#### 2.2.1 Camera Handoff Analysis
-- [ ] Implement cross-camera identity matching analysis
-- [ ] Visualize successful and failed handoff cases
-- [ ] Analyze handoff performance by camera pair
-- [ ] Generate camera network topology recommendations
+### 1.2 Failure Case Documentation
+**Objective**: Comprehensive documentation of detection failures
 
-#### 2.2.2 Homography and Spatial Analysis
-- [ ] Validate homography transformation accuracy
-- [ ] Analyze spatial consistency across camera views
-- [ ] Identify geometric calibration issues
-- [ ] Generate spatial tracking quality maps
+#### 1.2.1 Failure Image Collection
+- [ ] **1-Per-Person Rule**: Collect maximum 1 failure image per person ID per scenario/camera
+- [ ] **Representative Selection**: Choose most representative failure case if multiple exist
+- [ ] **Dual Bounding Box Visualization**: 
+  - **Ground Truth Boxes**: Display in RED color for missed detections
+  - **Detected Boxes**: Display in BLUE color for all model predictions
+  - **Color Coding**: Clear visual distinction between ground truth and predictions
+- [ ] **Contextual Information**: Include scene conditions, frame metadata, failure reason
 
----
+#### 1.2.2 Failure Analysis Framework
+- [ ] **Failure Classification**: Categorize failures by type (occlusion, lighting, distance, etc.)
+- [ ] **Statistical Analysis**: Generate failure rate statistics per scenario/camera
+- [ ] **Performance Heatmaps**: Create visual performance maps across all combinations
+- [ ] **Improvement Recommendations**: Identify specific areas for model enhancement
 
-## PHASE 3: Re-Identification Analysis
+### 1.3 Results and Reporting
+**Objective**: Comprehensive analysis documentation and insights
 
-### 3.1 Re-ID Model Performance Analysis
-**Objective**: Comprehensive analysis of re-identification accuracy
+#### 1.3.1 Performance Summary Generation
+- [ ] **Scenario Performance Matrix**: Performance metrics for each scene/camera combination
+- [ ] **Best/Worst Environment Identification**: Highlight top and bottom performing environments
+- [ ] **Failure Pattern Analysis**: Identify common failure patterns across scenarios
+- [ ] **Environmental Correlation Analysis**: Link performance to environmental factors
 
-#### 3.1.1 Re-ID Failure Case Analysis
-- [ ] Implement re-ID confusion matrix generation
-- [ ] Visualize hard negative and false positive cases
-- [ ] Analyze re-ID performance by person attributes
-- [ ] Generate re-ID confidence distribution analysis
-
-#### 3.1.2 Feature Space Analysis
-- [ ] Implement feature visualization and clustering
-- [ ] Analyze feature space separation by identity
-- [ ] Identify feature space anomalies and outliers
-- [ ] Generate feature quality assessment reports
-
-#### 3.1.3 Cross-Model Re-ID Comparison
-- [ ] Compare multiple re-ID models on identical test sets
-- [ ] Analyze model agreement and disagreement patterns
-- [ ] Identify complementary model strengths
-- [ ] Design ensemble re-ID strategies
-
-### 3.2 Re-ID in Context Analysis
-**Objective**: Analysis of re-ID performance in realistic scenarios
-
-#### 3.2.1 Temporal Re-ID Analysis
-- [ ] Analyze re-ID accuracy degradation over time
-- [ ] Implement appearance change detection
-- [ ] Track re-ID performance across different time intervals
-- [ ] Generate temporal consistency reports
-
-#### 3.2.2 Environmental Impact Analysis
-- [ ] Analyze re-ID performance by lighting conditions
-- [ ] Evaluate impact of crowd density on re-ID accuracy
-- [ ] Assess viewpoint and pose impact on re-ID
-- [ ] Generate environmental factor correlation analysis
+#### 1.3.2 Actionable Insights
+- [ ] **Environment-Specific Recommendations**: Suggest improvements for poor-performing scenarios
+- [ ] **Training Data Insights**: Identify underrepresented scenarios in training
+- [ ] **Model Limitation Analysis**: Document specific model weaknesses
+- [ ] **Deployment Recommendations**: Suggest optimal deployment environments
 
 ---
 
-## PHASE 4: Integrated Pipeline Analysis
+## Implementation Details
 
-### 4.1 End-to-End Performance Analysis
-**Objective**: Holistic analysis of the complete vision pipeline
+### Configuration Requirements
+- **Model Path**: `checkpoints/7af7b38617994e41adbd761df223cf93/ckpt_best_eval_map_50.pth`
+- **Pipeline**: `src/pipelines/enhanced_detection_analysis.py`
+- **Dataset**: MTMMC validation split with all scene/camera combinations
+- **IoU Threshold**: 0.5 (configurable)
+- **Confidence Threshold**: 0.5 (configurable)
 
-#### 4.1.1 Pipeline Component Interaction Analysis
-- [ ] Analyze error propagation through pipeline stages
-- [ ] Identify bottleneck components in the pipeline
-- [ ] Measure pipeline latency and throughput
-- [ ] Generate pipeline optimization recommendations
+### Output Structure
+```
+outputs/enhanced_detection_analysis/
+├── failure_images/
+│   ├── fasterrcnn_trained/
+│   │   ├── failure_s01_c01_id1_frame123.png
+│   │   ├── failure_s01_c02_id5_frame045.png
+│   │   └── ...
+├── reports/
+│   ├── analysis_report.html
+│   ├── model_comparison/
+│   └── scenario_performance_matrix.csv
+└── statistics/
+    ├── failure_cases.csv
+    ├── scenario_statistics.csv
+    └── performance_plots.png
+```
 
-#### 4.1.2 Failure Mode Analysis
-- [ ] Implement comprehensive failure taxonomy
-- [ ] Analyze cascading failure patterns
-- [ ] Generate failure recovery strategy recommendations
-- [ ] Create pipeline robustness assessment
-
-### 4.2 Real-World Scenario Simulation
-**Objective**: Analysis under realistic deployment conditions
-
-#### 4.2.1 Stress Testing Framework
-- [ ] Implement high-density crowd scenario testing
-- [ ] Analyze performance under varying lighting conditions
-- [ ] Test pipeline behavior with partial occlusions
-- [ ] Generate stress test performance reports
-
-#### 4.2.2 Edge Case Analysis
-- [ ] Identify and analyze rare but critical failure cases
-- [ ] Implement edge case detection and logging
-- [ ] Generate edge case handling recommendations
-- [ ] Create robustness improvement strategies
-
----
-
-## PHASE 5: Advanced Analytics and Optimization
-
-### 5.1 Machine Learning-Driven Analysis
-**Objective**: AI-powered analysis and optimization recommendations
-
-#### 5.1.1 Failure Prediction Models
-- [ ] Implement ML models to predict detection failures
-- [ ] Build scene condition classification models
-- [ ] Generate predictive performance alerts
-- [ ] Create adaptive model selection strategies
-
-#### 5.1.2 Performance Optimization Recommendations
-- [ ] Implement automated hyperparameter optimization
-- [ ] Generate model selection recommendations by scenario
-- [ ] Create adaptive threshold adjustment strategies
-- [ ] Build performance-cost optimization models
-
-### 5.2 Continuous Monitoring and Improvement
-**Objective**: Long-term performance monitoring and optimization
-
-#### 5.2.1 Performance Monitoring Dashboard
-- [ ] Implement real-time performance monitoring
-- [ ] Create automated alerting for performance degradation
-- [ ] Generate trend analysis and forecasting
-- [ ] Build performance baseline establishment
-
-#### 5.2.2 Feedback Loop Implementation
-- [ ] Create automated model retraining triggers
-- [ ] Implement performance feedback integration
-- [ ] Generate improvement recommendation automation
-- [ ] Build continuous optimization pipeline
+### Expected Outcomes
+- **Performance Map**: Clear visualization of which scenarios/cameras perform well/poorly
+- **Failure Gallery**: 1 representative failure image per person ID that failed detection
+  - **Visual Format**: Ground truth boxes (RED) + detected boxes (BLUE) overlay
+  - **Clear Distinction**: Easy identification of missed vs. detected persons
+- **Statistical Analysis**: Quantitative breakdown of failure patterns
+- **Actionable Insights**: Specific recommendations for model improvement and deployment
 
 ---
 
-## Implementation Priority Matrix
+## Implementation Priority and Timeline
 
-### High Priority (Immediate Implementation)
-1. **Enhanced Detection Failure Analysis** (Phase 1.1)
-2. **Cross-Model Detection Comparison** (Phase 1.2)
-3. **Tracking Failure Detection** (Phase 2.1)
-4. **Basic Re-ID Analysis** (Phase 3.1)
+### Immediate Implementation (Phase 1)
+1. **Model Configuration**: Set up FasterRCNN model with existing checkpoint
+2. **Scenario Coverage**: Run analysis on all scene/camera combinations
+3. **Failure Collection**: Implement 1-per-person-ID failure sampling
+4. **Performance Mapping**: Generate scenario/camera performance matrix
 
-### Medium Priority (Next Quarter)
-1. **Multi-Camera Tracking Analysis** (Phase 2.2)
-2. **Advanced Re-ID Analysis** (Phase 3.2)
-3. **Pipeline Integration Analysis** (Phase 4.1)
+### Success Metrics
+- [ ] **Complete Coverage**: Analysis completed for all scene/camera combinations
+- [ ] **Failure Documentation**: 1 representative failure image collected per person ID
+- [ ] **Performance Insights**: Clear identification of best/worst performing environments
+- [ ] **Actionable Recommendations**: Specific improvement suggestions for poor-performing scenarios
 
-### Long-term Priority (Future Iterations)
-1. **Real-World Scenario Simulation** (Phase 4.2)
-2. **ML-Driven Analysis** (Phase 5.1)
-3. **Continuous Monitoring** (Phase 5.2)
+### Timeline
+- **Setup and Configuration**: 1-2 days
+- **Full Analysis Execution**: 3-5 days (depending on dataset size)
+- **Report Generation**: 1-2 days
+- **Total Duration**: 1 week
 
----
+### Key Deliverables
+1. **Failure Image Gallery**: Organized collection of representative failure cases
+   - **Dual-Color Visualization**: RED (ground truth) + BLUE (detected) bounding boxes
+   - **1-Per-Person Sampling**: Maximum 1 failure image per person ID per scenario/camera
+2. **Performance Matrix**: Quantitative performance metrics per scenario/camera
+3. **Environment Analysis Report**: Detailed breakdown of environmental factors
+4. **Improvement Recommendations**: Specific actions for model enhancement
 
-## Success Metrics and KPIs
-
-### Technical Metrics
-- [ ] Detection failure reduction by 30% through targeted improvements
-- [ ] Tracking consistency improvement (IDF1 score increase by 15%)
-- [ ] Re-ID accuracy improvement (rank-1 accuracy increase by 20%)
-- [ ] Pipeline latency reduction by 25%
-
-### Operational Metrics
-- [ ] Time to identify performance issues reduced by 80%
-- [ ] Automated report generation covering 100% of failure cases
-- [ ] Model selection accuracy improved by 40%
-- [ ] Development cycle time reduced by 50%
-
-### Business Impact Metrics
-- [ ] Overall system reliability improved by 35%
-- [ ] False positive rate reduced by 45%
-- [ ] System deployment confidence increased by 60%
-- [ ] Maintenance overhead reduced by 40%
-
----
-
-## Resource Requirements and Timeline
-
-### Phase 1 (Months 1-2): Enhanced Detection Analysis
-- **Development Time**: 6-8 weeks
-- **Testing Time**: 2 weeks
-- **Key Deliverables**: Enhanced failure analysis, cross-model comparison
-
-### Phase 2 (Months 2-4): Tracking Analysis
-- **Development Time**: 8-10 weeks  
-- **Testing Time**: 2 weeks
-- **Key Deliverables**: Tracking quality metrics, multi-camera analysis
-
-### Phase 3 (Months 4-6): Re-ID Analysis  
-- **Development Time**: 6-8 weeks
-- **Testing Time**: 2 weeks
-- **Key Deliverables**: Re-ID performance analysis, feature space analysis
-
-### Phase 4 (Months 6-8): Integrated Analysis
-- **Development Time**: 8-10 weeks
-- **Testing Time**: 3 weeks  
-- **Key Deliverables**: End-to-end analysis, scenario simulation
-
-### Phase 5 (Months 8-12): Advanced Analytics
-- **Development Time**: 12-16 weeks
-- **Testing Time**: 4 weeks
-- **Key Deliverables**: ML-driven optimization, monitoring dashboard
-
----
-
-## Risk Mitigation Strategies
-
-### Technical Risks
-- **Model Performance Regression**: Implement comprehensive baseline testing
-- **Integration Complexity**: Use phased rollout with rollback capabilities
-- **Data Quality Issues**: Implement data validation and quality checks
-
-### Resource Risks  
-- **Timeline Delays**: Build buffer time and prioritize critical features
-- **Skill Gaps**: Provide training and knowledge transfer sessions
-- **Infrastructure Limitations**: Scale computing resources as needed
-
-### Operational Risks
-- **Stakeholder Alignment**: Regular review meetings and progress updates
-- **Scope Creep**: Clear phase definitions and change management process
-- **Quality Assurance**: Continuous testing and validation throughout development
-
-This comprehensive analysis plan provides a structured approach to identifying and addressing performance issues across the entire MTMMC vision pipeline, with clear phases, actionable tasks, and measurable outcomes.
+This focused analysis plan provides a clear, achievable path to understanding detection model performance across different environments, with actionable insights for improvement.
