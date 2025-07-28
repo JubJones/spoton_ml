@@ -164,15 +164,21 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
         
         # Convert annotations
         for obj_id, cx, cy, w, h in annotations:
-            # Convert normalized coordinates to pixel coordinates
-            x_center = cx * width
-            y_center = cy * height
-            box_width = w * width
-            box_height = h * height
+            # Note: cx, cy, w, h are already in pixel coordinates from MTMMCDetectionDataset
+            # No need to multiply by width/height
+            x_center = cx
+            y_center = cy
+            box_width = w
+            box_height = h
             
             # Convert to COCO format (x_min, y_min, width, height)
             x_min = x_center - box_width / 2
             y_min = y_center - box_height / 2
+            
+            # Validate coordinates are reasonable
+            if x_center < 0 or x_center > width or y_center < 0 or y_center > height:
+                logger.warning(f"Skipping invalid box: center=({x_center:.1f}, {y_center:.1f}), size=({box_width:.1f}, {box_height:.1f}), image_size=({width}, {height})")
+                continue
             
             # Ensure coordinates are within image bounds
             x_min = max(0, x_min)
@@ -182,6 +188,7 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
             
             # Skip invalid boxes
             if box_width <= 0 or box_height <= 0:
+                logger.warning(f"Skipping invalid box after clipping: bbox=({x_min:.1f}, {y_min:.1f}, {box_width:.1f}, {box_height:.1f})")
                 continue
             
             annotation = {
