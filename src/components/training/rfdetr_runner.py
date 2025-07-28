@@ -268,7 +268,7 @@ def run_single_rfdetr_training_job(
         logger.info("Converting datasets to COCO format...")
         dataset_dir = convert_mtmmc_to_coco_format(dataset_train, temp_dataset_dir, "train")
         if len(dataset_val) > 0:
-            convert_mtmmc_to_coco_format(dataset_val, temp_dataset_dir, "val")
+            convert_mtmmc_to_coco_format(dataset_val, temp_dataset_dir, "valid")
         
         # Create RF-DETR model
         logger.info("Creating RF-DETR model...")
