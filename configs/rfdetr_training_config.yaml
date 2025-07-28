@@ -1,0 +1,73 @@
+mlflow:
+  experiment_name: "MTMMC Detection Training (RF-DETR)"
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+
+data:
+  # base_path: "/Volumes/HDD/MTMMC"
+  base_path: "D:/MTMMC" # Adjust to your dataset location
+  # Define scenes and cameras to USE for this entire training run
+  # The dataset loader will combine data from these sources.
+  scenes_to_include:
+    - scene_id: "s10" # Factory
+      camera_ids: ["c09", "c12", "c13", "c16"] # Use all cameras from the scene
+    - scene_id: "s47" # Campus
+      camera_ids: ["c01", "c02", "c03", "c05"] # Use all cameras from the scene
+
+  # Data subsetting for faster runs/debugging
+  use_data_subset: true # Set to false to use all data
+  data_subset_fraction: 0.1 # Use 10% of the data if use_data_subset is true
+
+  # Train/Val split
+  val_split_ratio: 0.2 # Proportion of (sub)set to use for validation
+  num_workers: 2 # Number of workers for DataLoader
+
+# --- Models to Train (Child Runs) ---
+models_to_train:
+  # --- RF-DETR Configuration ---
+  - model:
+      type: "rfdetr"
+      name_tag: "RFDETR_Base" # Used for run naming if run_name isn't specified below
+      size: "base" # Options: "base", "small", "medium", "large", "nano"
+      num_classes: 2 # person + background (RF-DETR handles this internally)
+
+    training:
+      engine: "rfdetr"
+      epochs: 100
+      batch_size: 4
+      learning_rate: 1e-4 # Primary learning rate
+      lr_encoder: 1.5e-4 # Encoder learning rate
+      weight_decay: 1e-4
+      
+      # RF-DETR specific parameters
+      grad_accum_steps: 4 # Gradient accumulation steps
+      warmup_epochs: 0 # Warmup epochs
+      lr_drop: 100 # Learning rate drop epoch
+      ema_decay: 0.993 # EMA decay rate
+      ema_tau: 100 # EMA tau parameter
+      lr_vit_layer_decay: 0.8 # ViT layer learning rate decay
+      lr_component_decay: 0.7 # Component learning rate decay
+      drop_path: 0.0 # Drop path rate
+      
+      # Data augmentation
+      multi_scale: true # Enable multi-scale training
+      expanded_scales: true # Enable expanded scales
+      
+      # Early stopping
+      early_stopping: false # Enable early stopping
+      early_stopping_patience: 10 # Early stopping patience
+      early_stopping_min_delta: 0.001 # Early stopping minimum delta
+      
+      # Checkpointing
+      checkpoint_interval: 10 # Save checkpoint every N epochs
+      
+      # Advanced options (uncomment to use)
+      # use_ema: true # Use exponential moving average
+      # ia_bce_loss: true # Use IA BCE loss
+      # cls_loss_coef: 1.0 # Classification loss coefficient
+      # num_select: 300 # Number of selected queries
+      # group_detr: 13 # Group DETR parameter
+      # square_resize_div_64: true # Square resize divisible by 64
+      # do_random_resize_via_padding: false # Random resize via padding
