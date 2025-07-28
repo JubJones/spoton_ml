@@ -119,12 +119,13 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
     images_dir.mkdir(parents=True, exist_ok=True)
     
     # Initialize COCO format structure
+    # CRITICAL: RF-DETR expects 0-based class indices
     coco_data = {
         "images": [],
         "annotations": [],
         "categories": [
             {
-                "id": 1,
+                "id": 0,  # 0-based indexing for RF-DETR
                 "name": "person",
                 "supercategory": "person"
             }
@@ -162,40 +163,47 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
         }
         coco_data["images"].append(image_info)
         
-        # Convert annotations
+        # Convert annotations: MTMMC format → COCO format with normalization
         for obj_id, cx, cy, w, h in annotations:
-            # Note: cx, cy, w, h are already in pixel coordinates from MTMMCDetectionDataset
-            # No need to multiply by width/height
-            x_center = cx
-            y_center = cy
-            box_width = w
-            box_height = h
+            # MTMMC annotations: (obj_id, center_x, center_y, box_width, box_height) in PIXEL coordinates
+            # RF-DETR expects: COCO format [x_min, y_min, width, height] in PIXEL coordinates
+            #                  But the model internally expects NORMALIZED coordinates [0,1]
             
-            # Convert to COCO format (x_min, y_min, width, height)
-            x_min = x_center - box_width / 2
-            y_min = y_center - box_height / 2
-            
-            # Validate coordinates are reasonable
-            if x_center < 0 or x_center > width or y_center < 0 or y_center > height:
-                logger.warning(f"Skipping invalid box: center=({x_center:.1f}, {y_center:.1f}), size=({box_width:.1f}, {box_height:.1f}), image_size=({width}, {height})")
+            # Validate input coordinates are reasonable (should be pixel coordinates)
+            if cx < 0 or cx > width or cy < 0 or cy > height:
+                logger.warning(f"Skipping invalid box: center=({cx:.1f}, {cy:.1f}), size=({w:.1f}, {h:.1f}), image_size=({width}, {height})")
                 continue
             
-            # Ensure coordinates are within image bounds
+            if w <= 0 or h <= 0:
+                logger.warning(f"Skipping invalid box: negative/zero size=({w:.1f}, {h:.1f})")
+                continue
+            
+            # Convert from center-based to corner-based coordinates (still in pixels)
+            x_min = cx - w / 2
+            y_min = cy - h / 2
+            
+            # Clamp to image bounds
             x_min = max(0, x_min)
             y_min = max(0, y_min)
-            box_width = min(box_width, width - x_min)
-            box_height = min(box_height, height - y_min)
+            x_max = min(width, cx + w / 2)
+            y_max = min(height, cy + h / 2)
             
-            # Skip invalid boxes
+            # Recalculate width/height after clamping
+            box_width = x_max - x_min
+            box_height = y_max - y_min
+            
+            # Skip invalid boxes after clamping
             if box_width <= 0 or box_height <= 0:
                 logger.warning(f"Skipping invalid box after clipping: bbox=({x_min:.1f}, {y_min:.1f}, {box_width:.1f}, {box_height:.1f})")
                 continue
             
+            # Create COCO annotation (RF-DETR will handle normalization internally)
+            # CRITICAL: RF-DETR expects 0-based class indices, not 1-based COCO indices
             annotation = {
                 "id": annotation_id,
                 "image_id": idx,
-                "category_id": 1,  # person class
-                "bbox": [x_min, y_min, box_width, box_height],
+                "category_id": 0,  # person class (0-based indexing for RF-DETR)
+                "bbox": [x_min, y_min, box_width, box_height],  # COCO format: [x_min, y_min, width, height]
                 "area": box_width * box_height,
                 "iscrowd": 0
             }

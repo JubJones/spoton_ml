@@ -31,7 +31,7 @@ models_to_train:
       type: "rfdetr"
       name_tag: "RFDETR_Base" # Used for run naming if run_name isn't specified below
       size: "base" # Options: "base", "small", "medium", "large", "nano"
-      num_classes: 2 # person + background (RF-DETR handles this internally)
+      num_classes: 1 # person class only (0-based indexing, no background class needed)
 
     training:
       engine: "rfdetr"
