@@ -5,6 +5,9 @@ environment:
   device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
   seed: 42
 
+debug:
+  enable_box_debug: false # Set to true to enable detailed box processing debug logs
+
 data:
   # base_path: "/Volumes/HDD/MTMMC"
   base_path: "D:/MTMMC" # Adjust to your dataset location

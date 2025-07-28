@@ -105,7 +105,7 @@ def get_rfdetr_model(config: Dict[str, Any]):
     return model
 
 
-def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Path, split_name: str):
+def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Path, split_name: str, debug_mode: bool = False):
     """
     Convert MTMMC dataset to COCO format required by RF-DETR.
     
@@ -113,6 +113,7 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
         dataset: MTMMCDetectionDataset instance
         output_dir: Directory to save COCO format data
         split_name: "train" or "val"
+        debug_mode: Enable debug logging for box processing
     """
     # Create output directories
     images_dir = output_dir / split_name
@@ -133,6 +134,8 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
     }
     
     annotation_id = 1
+    total_original_annotations = 0
+    total_skipped_annotations = 0
     
     logger.info(f"Converting {len(dataset)} samples to COCO format for {split_name}")
     
@@ -163,16 +166,24 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
         }
         coco_data["images"].append(image_info)
         
-        # Convert annotations: MTMMC format → COCO format with normalization
+        # Convert annotations: MTMMC format → COCO format with comprehensive validation
+        image_annotations = len(annotations)
+        image_skipped = 0
+        total_original_annotations += image_annotations
+        
         for obj_id, cx, cy, w, h in annotations:
             # MTMMC annotations: (obj_id, center_x, center_y, box_width, box_height) in PIXEL coordinates
             # RF-DETR expects: COCO format [x_min, y_min, width, height] in PIXEL coordinates
             #                  But the model internally expects NORMALIZED coordinates [0,1]
             
+            # Debug logging for problematic boxes
+            if debug_mode:
+                logger.info(f"Processing annotation: obj_id={obj_id}, center=({cx:.1f}, {cy:.1f}), size=({w:.1f}, {h:.1f}), image_size=({width}, {height})")
+            
             # Validate input coordinates are reasonable (should be pixel coordinates)
-            # Allow centers that are close to image boundaries, as long as some part of the box is within the image
             if w <= 0 or h <= 0:
                 logger.warning(f"Skipping invalid box: negative/zero size=({w:.1f}, {h:.1f})")
+                image_skipped += 1
                 continue
             
             # Calculate box boundaries
@@ -181,24 +192,36 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
             x_max = cx + w / 2
             y_max = cy + h / 2
             
+            # Debug original boundaries
+            if debug_mode:
+                logger.info(f"Original boundaries: x_min={x_min:.1f}, y_min={y_min:.1f}, x_max={x_max:.1f}, y_max={y_max:.1f}")
+            
             # Check if the box has any overlap with the image (more lenient validation)
             if x_max <= 0 or x_min >= width or y_max <= 0 or y_min >= height:
                 logger.warning(f"Skipping invalid box: no overlap with image. center=({cx:.1f}, {cy:.1f}), size=({w:.1f}, {h:.1f}), image_size=({width}, {height})")
+                image_skipped += 1
                 continue
             
-            # Clamp to image bounds
-            x_min = max(0, x_min)
-            y_min = max(0, y_min)
-            x_max = min(width, cx + w / 2)
-            y_max = min(height, cy + h / 2)
+            # Clamp to image bounds - FIX: Use proper x_max/y_max calculation
+            x_min_clamped = max(0, x_min)
+            y_min_clamped = max(0, y_min)
+            x_max_clamped = min(width, x_max)  # Fixed: was using cx + w / 2
+            y_max_clamped = min(height, y_max)  # Fixed: was using cy + h / 2
             
             # Recalculate width/height after clamping
-            box_width = x_max - x_min
-            box_height = y_max - y_min
+            box_width = x_max_clamped - x_min_clamped
+            box_height = y_max_clamped - y_min_clamped
             
-            # Skip invalid boxes after clamping
-            if box_width <= 0 or box_height <= 0:
-                logger.warning(f"Skipping invalid box after clipping: bbox=({x_min:.1f}, {y_min:.1f}, {box_width:.1f}, {box_height:.1f})")
+            # Debug clamped boundaries
+            if debug_mode:
+                logger.info(f"Clamped boundaries: x_min={x_min_clamped:.1f}, y_min={y_min_clamped:.1f}, x_max={x_max_clamped:.1f}, y_max={y_max_clamped:.1f}")
+                logger.info(f"Final box: width={box_width:.1f}, height={box_height:.1f}")
+            
+            # Skip invalid boxes after clamping - add minimum size threshold
+            MIN_BOX_SIZE = 1.0  # Minimum box size in pixels
+            if box_width < MIN_BOX_SIZE or box_height < MIN_BOX_SIZE:
+                logger.warning(f"Skipping invalid box after clipping: bbox=({x_min_clamped:.1f}, {y_min_clamped:.1f}, {box_width:.1f}, {box_height:.1f}), too small (min={MIN_BOX_SIZE})")
+                image_skipped += 1
                 continue
             
             # Create COCO annotation (RF-DETR will handle normalization internally)
@@ -207,19 +230,31 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
                 "id": annotation_id,
                 "image_id": idx,
                 "category_id": 0,  # person class (0-based indexing for RF-DETR)
-                "bbox": [x_min, y_min, box_width, box_height],  # COCO format: [x_min, y_min, width, height]
+                "bbox": [x_min_clamped, y_min_clamped, box_width, box_height],  # COCO format: [x_min, y_min, width, height]
                 "area": box_width * box_height,
                 "iscrowd": 0
             }
             coco_data["annotations"].append(annotation)
             annotation_id += 1
     
+        # Log summary for this image
+        image_kept = image_annotations - image_skipped
+        total_skipped_annotations += image_skipped
+        if image_skipped > 0:
+            logger.info(f"Image {idx}: {image_kept}/{image_annotations} annotations kept, {image_skipped} skipped")
+    
     # Save COCO annotations
     annotations_file = output_dir / split_name / "_annotations.coco.json"
     with open(annotations_file, "w") as f:
         json.dump(coco_data, f, indent=2)
     
-    logger.info(f"Saved {len(coco_data['images'])} images and {len(coco_data['annotations'])} annotations to {annotations_file}")
+    total_kept = len(coco_data['annotations'])
+    logger.info(f"Saved {len(coco_data['images'])} images and {total_kept} annotations to {annotations_file}")
+    
+    # Calculate overall skip rate
+    if total_original_annotations > 0:
+        skip_rate = (total_skipped_annotations / total_original_annotations) * 100
+        logger.info(f"Overall annotation processing: {total_kept} kept, {total_skipped_annotations} skipped ({skip_rate:.1f}% skip rate)")
     
     return str(output_dir)
 
@@ -285,11 +320,13 @@ def run_single_rfdetr_training_job(
         
         # Convert to COCO format
         logger.info("Converting datasets to COCO format...")
-        dataset_dir = convert_mtmmc_to_coco_format(dataset_train, temp_dataset_dir, "train")
+        # Check if debug mode is enabled
+        debug_mode = run_config.get("debug", {}).get("enable_box_debug", False)
+        dataset_dir = convert_mtmmc_to_coco_format(dataset_train, temp_dataset_dir, "train", debug_mode)
         if len(dataset_val) > 0:
-            convert_mtmmc_to_coco_format(dataset_val, temp_dataset_dir, "valid")
+            convert_mtmmc_to_coco_format(dataset_val, temp_dataset_dir, "valid", debug_mode)
             # RF-DETR expects a test split, use validation data for test
-            convert_mtmmc_to_coco_format(dataset_val, temp_dataset_dir, "test")
+            convert_mtmmc_to_coco_format(dataset_val, temp_dataset_dir, "test", debug_mode)
         
         # Create RF-DETR model
         logger.info("Creating RF-DETR model...")
