@@ -11,6 +11,7 @@ import json
 import shutil
 import tempfile
 import subprocess
+from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, Optional, Tuple
 from PIL import Image
@@ -105,6 +106,66 @@ def get_rfdetr_model(config: Dict[str, Any]):
     return model
 
 
+def validate_coco_format(coco_data: Dict[str, Any], split_name: str) -> bool:
+    """
+    Validate that the COCO format data structure is correct.
+    
+    Args:
+        coco_data: The COCO format dictionary
+        split_name: Name of the split for logging context
+        
+    Returns:
+        True if valid, False otherwise
+    """
+    required_fields = ["info", "images", "annotations", "categories"]
+    
+    for field in required_fields:
+        if field not in coco_data:
+            logger.error(f"COCO format validation failed for {split_name}: Missing required field '{field}'")
+            return False
+    
+    # Validate info field
+    info_required = ["description", "version", "year", "contributor", "date_created"]
+    for field in info_required:
+        if field not in coco_data["info"]:
+            logger.warning(f"COCO format info field missing recommended field '{field}' for {split_name}")
+    
+    # Validate categories
+    if not coco_data["categories"]:
+        logger.error(f"COCO format validation failed for {split_name}: Categories cannot be empty")
+        return False
+    
+    # Validate that each category has required fields
+    for cat in coco_data["categories"]:
+        if "id" not in cat or "name" not in cat:
+            logger.error(f"COCO format validation failed for {split_name}: Category missing id or name")
+            return False
+    
+    # Validate images
+    for img in coco_data["images"]:
+        img_required = ["id", "file_name", "width", "height"]
+        for field in img_required:
+            if field not in img:
+                logger.error(f"COCO format validation failed for {split_name}: Image missing required field '{field}'")
+                return False
+    
+    # Validate annotations
+    for ann in coco_data["annotations"]:
+        ann_required = ["id", "image_id", "category_id", "bbox", "area"]
+        for field in ann_required:
+            if field not in ann:
+                logger.error(f"COCO format validation failed for {split_name}: Annotation missing required field '{field}'")
+                return False
+        
+        # Validate bbox format
+        if not isinstance(ann["bbox"], list) or len(ann["bbox"]) != 4:
+            logger.error(f"COCO format validation failed for {split_name}: Invalid bbox format")
+            return False
+    
+    logger.info(f"COCO format validation passed for {split_name}: {len(coco_data['images'])} images, {len(coco_data['annotations'])} annotations")
+    return True
+
+
 def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Path, split_name: str, debug_mode: bool = False):
     """
     Convert MTMMC dataset to COCO format required by RF-DETR.
@@ -119,9 +180,26 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
     images_dir = output_dir / split_name
     images_dir.mkdir(parents=True, exist_ok=True)
     
-    # Initialize COCO format structure
+    # Initialize COCO format structure with required fields
     # CRITICAL: RF-DETR expects 0-based class indices
+    # The 'info' field is required by pycocotools
+    current_time = datetime.now().strftime("%Y-%m-%d")
     coco_data = {
+        "info": {
+            "description": f"MTMMC Dataset converted to COCO format for RF-DETR training - {split_name} split",
+            "url": "https://github.com/ergyun/MTMMC",
+            "version": "1.0",
+            "year": datetime.now().year,
+            "contributor": "MTMMC-to-COCO converter",
+            "date_created": current_time
+        },
+        "licenses": [
+            {
+                "id": 1,
+                "name": "Custom License",
+                "url": "https://github.com/ergyun/MTMMC"
+            }
+        ],
         "images": [],
         "annotations": [],
         "categories": [
@@ -157,12 +235,16 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
             image = image.convert("RGB")
         image.save(output_image_path)
         
-        # Add image info
+        # Add image info with license reference
         image_info = {
             "id": idx,
             "file_name": image_filename,
             "width": width,
-            "height": height
+            "height": height,
+            "license": 1,  # Reference to license in licenses array
+            "flickr_url": "",
+            "coco_url": "",
+            "date_captured": f"{current_time} 12:00:00"
         }
         coco_data["images"].append(image_info)
         
@@ -242,6 +324,15 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
         total_skipped_annotations += image_skipped
         if image_skipped > 0:
             logger.info(f"Image {idx}: {image_kept}/{image_annotations} annotations kept, {image_skipped} skipped")
+    
+    # Validate COCO format before saving
+    if not validate_coco_format(coco_data, split_name):
+        # Log debug information for troubleshooting
+        logger.error(f"COCO format validation failed for {split_name}")
+        logger.error(f"Dataset structure keys: {list(coco_data.keys())}")
+        if "info" in coco_data:
+            logger.error(f"Info structure: {coco_data['info']}")
+        raise ValueError(f"Generated COCO format is invalid for {split_name} split")
     
     # Save COCO annotations
     annotations_file = output_dir / split_name / "_annotations.coco.json"
@@ -372,7 +463,20 @@ def run_single_rfdetr_training_job(
             if split_path.exists():
                 logger.info(f"  {split}/: {len(list(split_path.glob('*.jpg')))} images")
                 ann_file = split_path / "_annotations.coco.json"
-                logger.info(f"  {split}/_annotations.coco.json: {'exists' if ann_file.exists() else 'missing'}")
+                if ann_file.exists():
+                    logger.info(f"  {split}/_annotations.coco.json: exists")
+                    # Log a sample of the COCO format for debugging
+                    try:
+                        with open(ann_file, 'r') as f:
+                            coco_sample = json.load(f)
+                            logger.info(f"  {split} COCO format keys: {list(coco_sample.keys())}")
+                            logger.info(f"  {split} has {len(coco_sample.get('images', []))} images, {len(coco_sample.get('annotations', []))} annotations")
+                            if 'info' in coco_sample:
+                                logger.info(f"  {split} info field: {coco_sample['info']}")
+                    except Exception as e:
+                        logger.warning(f"  Could not read {split}/_annotations.coco.json: {e}")
+                else:
+                    logger.info(f"  {split}/_annotations.coco.json: missing")
             else:
                 logger.info(f"  {split}/: directory missing")
         
