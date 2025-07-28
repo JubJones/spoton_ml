@@ -63,6 +63,9 @@ models_to_train:
       # Checkpointing
       checkpoint_interval: 10 # Save checkpoint every N epochs
       
+      # Disable test dataset requirement
+      run_test: false
+      
       # Advanced options (uncomment to use)
       # use_ema: true # Use exponential moving average
       # ia_bce_loss: true # Use IA BCE loss

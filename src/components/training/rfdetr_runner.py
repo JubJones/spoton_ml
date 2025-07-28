@@ -269,6 +269,8 @@ def run_single_rfdetr_training_job(
         dataset_dir = convert_mtmmc_to_coco_format(dataset_train, temp_dataset_dir, "train")
         if len(dataset_val) > 0:
             convert_mtmmc_to_coco_format(dataset_val, temp_dataset_dir, "valid")
+            # RF-DETR expects a test split, use validation data for test
+            convert_mtmmc_to_coco_format(dataset_val, temp_dataset_dir, "test")
         
         # Create RF-DETR model
         logger.info("Creating RF-DETR model...")
@@ -293,7 +295,7 @@ def run_single_rfdetr_training_job(
         optional_params = [
             "grad_accum_steps", "warmup_epochs", "lr_drop", "ema_decay", 
             "ema_tau", "lr_vit_layer_decay", "lr_component_decay", "drop_path",
-            "multi_scale", "expanded_scales", "early_stopping_min_delta"
+            "multi_scale", "expanded_scales", "early_stopping_min_delta", "run_test"
         ]
         
         for param in optional_params:
@@ -305,6 +307,18 @@ def run_single_rfdetr_training_job(
         # Create output directory
         output_dir = Path(train_config["output_dir"])
         output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Log dataset directory structure for debugging
+        logger.info(f"Dataset directory structure:")
+        dataset_path = Path(train_config["dataset_dir"])
+        for split in ["train", "valid", "test"]:
+            split_path = dataset_path / split
+            if split_path.exists():
+                logger.info(f"  {split}/: {len(list(split_path.glob('*.jpg')))} images")
+                ann_file = split_path / "_annotations.coco.json"
+                logger.info(f"  {split}/_annotations.coco.json: {'exists' if ann_file.exists() else 'missing'}")
+            else:
+                logger.info(f"  {split}/: directory missing")
         
         # Start training
         logger.info("Starting RF-DETR training...")
