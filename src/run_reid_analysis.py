@@ -36,7 +36,7 @@ sys.path.insert(0, str(project_root))
 from src.utils.config_loader import load_config
 from src.utils.logging_utils import setup_logging
 from src.utils.reproducibility import set_seed
-from src.utils.mlflow_utils import setup_mlflow
+from src.utils.mlflow_utils import setup_mlflow_experiment
 from src.pipelines.phase2_reid_analysis import run_phase2_reid_analysis
 
 logger = logging.getLogger(__name__)

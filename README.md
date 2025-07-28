@@ -9,10 +9,10 @@ This repository contains a Python framework for developing, training, evaluating
     *   YOLO (via Ultralytics)
     *   RT-DETR (via Ultralytics)
     *   Faster R-CNN (ResNet50 backbone via TorchVision)
-    *   RF-DETR (via `rfdetr` library)
+    *   RF-DETR (via `rfdetr` library with automatic COCO format conversion)
 *   **Tracking & Re-ID:** Integrates with the BoxMOT library for various trackers (DeepSORT, StrongSORT, BoT-SORT, OCSORT, BoostTrack, ImprAssoc, etc.) combined with different Re-Identification models.
 *   **MTMMC Dataset Support:** Includes data loaders specifically designed for the MTMMC dataset structure.
-*   **Training Pipeline:** Dedicated pipeline for training object detection models (currently configured for Faster R-CNN).
+*   **Training Pipeline:** Dedicated pipelines for training object detection models (Faster R-CNN and RF-DETR).
 *   **Evaluation:**
     *   Calculates standard detection metrics (mAP) using `torchmetrics`.
     *   Calculates tracking metrics (IDF1 focus) using `motmetrics`.
@@ -35,6 +35,7 @@ This repository contains a Python framework for developing, training, evaluating
     │   ├── eda_config.yaml          # Exploratory Data Analysis
     │   ├── explainability_config.yaml # Model explainability (FasterRCNN)
     │   ├── fasterrcnn_training_config.yaml # Faster R-CNN training
+    │   ├── rfdetr_training_config.yaml # RF-DETR training
     │   ├── single_run_config.yaml   # Single detection run
     │   └── tracking_reid_comparison_config.yaml # Tracker+ReID comparison
     ├── outputs/                  # Default output directory (e.g., explanations)
@@ -70,11 +71,26 @@ This repository contains a Python framework for developing, training, evaluating
     ```
 
 3.  **Install Dependencies:**
-    *   **PyTorch:** Install PyTorch matching your system/CUDA setup first. Follow instructions on the [PyTorch website](https://pytorch.org/get-started/locally/). The `requirements.txt` has a comment indicating the specific command used previously (`pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124`). Adapt this for your system.
-    *   **Other Dependencies:** Install the remaining packages.
+    *   **PyTorch:** Install PyTorch matching your system/CUDA setup first. Follow instructions on the [PyTorch website](https://pytorch.org/get-started/locally/). For example:
+        ```bash
+        # For CUDA 12.4 (adapt for your system)
+        pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+        
+        # For CPU only
+        pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
+        
+        # For macOS with MPS
+        pip3 install torch torchvision torchaudio
+        ```
+    *   **Core Dependencies:** Install the remaining packages.
         ```bash
         pip install -r requirements.txt
         ```
+    *   **RF-DETR Support (Optional):** For RF-DETR model training:
+        ```bash
+        pip install git+https://github.com/roboflow/rf-detr.git
+        ```
+        **Note:** RF-DETR requires specific dataset structure. The framework automatically handles the conversion from MTMMC format to RF-DETR's expected COCO format during training.
 
 4.  **MLflow & DagsHub Setup (Optional but Recommended):**
     *   For remote tracking with DagsHub:
@@ -128,6 +144,12 @@ Run different workflows using the `run_*.py` scripts in the `src/` directory. En
     python src/run_training_fasterrcnn.py
     ```
     *(Config: `configs/fasterrcnn_training_config.yaml`)*
+
+*   **Train RF-DETR:**
+    ```bash
+    python src/run_training_rfdetr.py
+    ```
+    *(Config: `configs/rfdetr_training_config.yaml`)*
 
 *   **Run Single Detection Experiment:**
     ```bash
@@ -205,3 +227,25 @@ Unit and integration tests are located in the `tests/` directory and can be run 
 pytest
 ```
 *(Requires `pytest` to be installed)*
+
+## Troubleshooting
+
+### RF-DETR Training Issues
+
+If you encounter issues with RF-DETR training, common problems and solutions:
+
+1. **Missing validation annotations file**: The framework automatically handles the conversion from MTMMC format to RF-DETR's expected COCO format. The validation data is created in a `valid/` directory structure that RF-DETR requires.
+
+2. **Dataset path issues**: Ensure the `base_path` in `configs/rfdetr_training_config.yaml` points to your MTMMC dataset root directory.
+
+3. **MLflow connection issues**: RF-DETR training uses MLflow for experiment tracking. If you encounter connection issues:
+   - Check your `.env` file configuration
+   - Verify DagsHub credentials with `dagshub login`
+   - For local tracking, remove or comment out the `MLFLOW_TRACKING_URI` environment variable
+
+4. **Memory issues**: RF-DETR models can be memory-intensive. Reduce the `batch_size` in the configuration if you encounter out-of-memory errors.
+
+### General Issues
+
+- **Device compatibility**: The framework automatically selects the best available device (CUDA > MPS > CPU). For model-specific requirements, check the device configuration in each config file.
+- **Dataset loading**: Ensure your MTMMC dataset structure matches the expected format and all required scenes/cameras are present.
