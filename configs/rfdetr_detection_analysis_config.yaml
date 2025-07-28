@@ -1,0 +1,100 @@
+# RF-DETR Detection Analysis Configuration
+# Per-scenario/camera analysis with trained RF-DETR model
+
+# --- Model Configuration ---
+# Update this path to point to your trained RF-DETR model checkpoint
+# Leave empty or set to non-existent path to use pre-trained model
+local_model_path: ""
+
+model:
+  type: "rfdetr"
+  size: "base"  # Options: "base", "small", "medium", "large", "nano"
+  num_classes: 2  # person + background
+  # RF-DETR specific parameters will be auto-loaded from checkpoint
+
+# --- MLflow Configuration ---
+mlflow:
+  experiment_name: "RF-DETR Detection Analysis"
+
+# --- Environment Configuration ---
+environment:
+  device: "auto"  # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+
+# --- Data Configuration ---
+data:
+  # Update base_path to point to your MTMMC dataset
+  base_path: "D:/MTMMC"
+  
+  # Include all available scenes for comprehensive analysis
+  scenes_to_include:
+    - scene_id: "s10"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+  
+  # Analysis on full validation set
+  use_data_subset: false
+  data_subset_fraction: 1.0
+  
+  # Validation split
+  val_split_ratio: 0.2
+  num_workers: 2
+
+# --- RF-DETR Analysis Configuration ---
+analysis:
+  # Output directory
+  output_dir: "outputs/rfdetr_detection_analysis"
+  
+  # Detection thresholds
+  iou_threshold: 0.5
+  confidence_threshold: 0.5
+  
+  # Failure collection strategy
+  collect_one_per_person: true
+  
+  # Visualization settings
+  colors:
+    ground_truth: [255, 0, 0]  # RED for ground truth
+    detected: [0, 0, 255]      # BLUE for detected
+    
+  # Analysis parameters
+  frame_sample_percent: 5.0  # Sample frames for analysis
+  
+  # Reporting
+  generate_html_report: true
+  generate_performance_matrix: true
+  generate_failure_visualizations: true
+  
+  # Environmental analysis
+  analyze_lighting_conditions: true
+  analyze_crowd_density: true
+  analyze_occlusion_levels: true
+  
+  # RF-DETR specific analysis
+  analyze_attention_patterns: true  # Analyze transformer attention
+  analyze_multi_scale_detection: true  # Analyze detection at different scales
+  analyze_query_performance: true  # Analyze query-based detection performance
+  
+  # Advanced RF-DETR metrics
+  rfdetr_metrics:
+    analyze_detr_losses: true  # Analyze DETR-specific losses
+    analyze_hungarian_matching: true  # Analyze Hungarian matching performance
+    analyze_backbone_features: true  # Analyze backbone feature extraction
+    
+  # Comparison settings (if FasterRCNN results available)
+  comparison:
+    enabled: false  # Set to true to enable comparison with FasterRCNN
+    fasterrcnn_results_path: "outputs/fasterrcnn_detection_analysis"
+    
+  # Export settings
+  export_formats:
+    - "json"  # Export results as JSON
+    - "csv"   # Export tabular data as CSV
+    - "html"  # Generate HTML report
+    
+  # Debugging and visualization
+  debug:
+    save_attention_maps: true  # Save attention visualization
+    save_feature_maps: false   # Save intermediate feature maps (large files)
+    save_detection_progress: true  # Save detection process visualization

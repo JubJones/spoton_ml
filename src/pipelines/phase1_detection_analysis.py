@@ -30,6 +30,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from src.components.data.training_dataset import MTMMCDetectionDataset
 from src.components.training.runner import get_transform, get_fasterrcnn_model
+from src.components.training.rfdetr_runner import get_rfdetr_model
 
 logger = logging.getLogger(__name__)
 
@@ -118,31 +119,71 @@ class Phase1DetectionAnalyzer:
             transforms=val_transforms
         )
     
-    def _load_fasterrcnn_model(self) -> torch.nn.Module:
-        """Load the trained FasterRCNN model from checkpoint."""
-        logger.info("Loading FasterRCNN model from checkpoint...")
+    def _load_detection_model(self) -> torch.nn.Module:
+        """Load the trained detection model from checkpoint (FasterRCNN or RF-DETR)."""
+        model_type = self.config.get("model", {}).get("type", "fasterrcnn").lower()
+        logger.info(f"Loading {model_type} model from checkpoint...")
         
-        # Load model architecture
-        model = get_fasterrcnn_model(self.config)
-        
-        # Load weights from checkpoint
         checkpoint_path = self.config.get("local_model_path")
-        if checkpoint_path and Path(checkpoint_path).exists():
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
-            
-            # Handle different checkpoint formats
-            if 'model_state_dict' in checkpoint:
-                model.load_state_dict(checkpoint['model_state_dict'])
-            else:
-                model.load_state_dict(checkpoint)
-                
-            logger.info(f"Loaded FasterRCNN weights from: {checkpoint_path}")
-        else:
-            logger.warning(f"Checkpoint not found at: {checkpoint_path}. Using pre-trained weights.")
         
-        model.to(self.device)
-        model.eval()
-        return model
+        if model_type == "fasterrcnn":
+            # Load FasterRCNN model architecture
+            model = get_fasterrcnn_model(self.config)
+            
+            # Load weights from checkpoint
+            if checkpoint_path and Path(checkpoint_path).exists():
+                checkpoint = torch.load(checkpoint_path, map_location=self.device)
+                
+                # Handle different checkpoint formats
+                if 'model_state_dict' in checkpoint:
+                    model.load_state_dict(checkpoint['model_state_dict'])
+                else:
+                    model.load_state_dict(checkpoint)
+                    
+                logger.info(f"Loaded FasterRCNN weights from: {checkpoint_path}")
+            else:
+                logger.warning(f"Checkpoint not found at: {checkpoint_path}. Using pre-trained weights.")
+            
+            model.to(self.device)
+            model.eval()
+            return model
+            
+        elif model_type == "rfdetr":
+            # Load RF-DETR model architecture
+            model = get_rfdetr_model(self.config)
+            
+            # Load weights from checkpoint if available
+            if checkpoint_path and Path(checkpoint_path).exists():
+                try:
+                    # RF-DETR models may have different checkpoint formats
+                    checkpoint = torch.load(checkpoint_path, map_location=self.device)
+                    
+                    # Handle different RF-DETR checkpoint formats
+                    if hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):
+                        if 'model_state_dict' in checkpoint:
+                            model.model.load_state_dict(checkpoint['model_state_dict'])
+                        elif 'model' in checkpoint:
+                            model.model.load_state_dict(checkpoint['model'])
+                        else:
+                            model.model.load_state_dict(checkpoint)
+                    else:
+                        logger.warning("RF-DETR checkpoint loading format not recognized, using default weights")
+                        
+                    logger.info(f"Loaded RF-DETR weights from: {checkpoint_path}")
+                except Exception as e:
+                    logger.warning(f"Failed to load RF-DETR checkpoint: {e}. Using default weights.")
+            else:
+                logger.warning(f"Checkpoint not found at: {checkpoint_path}. Using pre-trained weights.")
+            
+            # RF-DETR models handle device internally
+            return model
+            
+        else:
+            raise ValueError(f"Unsupported model type: {model_type}. Supported types: 'fasterrcnn', 'rfdetr'")
+    
+    def _load_fasterrcnn_model(self) -> torch.nn.Module:
+        """Legacy method for backward compatibility."""
+        return self._load_detection_model()
     
     def run_complete_analysis(self) -> None:
         """Run the complete Phase 1 analysis pipeline."""
@@ -266,17 +307,56 @@ class Phase1DetectionAnalyzer:
             if original_image is None:
                 return None
             
-            # Run FasterRCNN detection
-            with torch.no_grad():
-                prediction = self.model([image_tensor.to(self.device)])[0]
-                pred_boxes = prediction['boxes'].cpu()
-                pred_scores = prediction['scores'].cpu()
-                pred_labels = prediction['labels'].cpu()
+            # Run detection based on model type
+            model_type = self.config.get("model", {}).get("type", "fasterrcnn").lower()
             
-            # Filter for person class (assuming class 1 is person)
-            person_mask = pred_labels == 1
-            pred_boxes = pred_boxes[person_mask]
-            pred_scores = pred_scores[person_mask]
+            if model_type == "fasterrcnn":
+                # Run FasterRCNN detection
+                with torch.no_grad():
+                    prediction = self.model([image_tensor.to(self.device)])[0]
+                    pred_boxes = prediction['boxes'].cpu()
+                    pred_scores = prediction['scores'].cpu()
+                    pred_labels = prediction['labels'].cpu()
+                
+                # Filter for person class (assuming class 1 is person)
+                person_mask = pred_labels == 1
+                pred_boxes = pred_boxes[person_mask]
+                pred_scores = pred_scores[person_mask]
+                
+            elif model_type == "rfdetr":
+                # Run RF-DETR detection
+                with torch.no_grad():
+                    # Convert tensor to PIL image for RF-DETR
+                    image_pil = Image.fromarray(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
+                    results = self.model.predict(image_pil)
+                    
+                    # Extract predictions from RF-DETR results
+                    pred_boxes = []
+                    pred_scores = []
+                    
+                    if results and hasattr(results, 'boxes') and results.boxes is not None:
+                        # RF-DETR results format
+                        boxes = results.boxes.xyxy.cpu()  # x1, y1, x2, y2
+                        scores = results.boxes.conf.cpu()
+                        labels = results.boxes.cls.cpu()
+                        
+                        # Filter for person class (class 0 in RF-DETR)
+                        person_mask = labels == 0
+                        pred_boxes = boxes[person_mask]
+                        pred_scores = scores[person_mask]
+                    else:
+                        # Empty results
+                        pred_boxes = torch.empty((0, 4))
+                        pred_scores = torch.empty((0,))
+            
+            else:
+                raise ValueError(f"Unsupported model type: {model_type}")
+            
+            # Convert to tensors if needed
+            if not isinstance(pred_boxes, torch.Tensor):
+                pred_boxes = torch.tensor(pred_boxes) if len(pred_boxes) > 0 else torch.empty((0, 4))
+            if not isinstance(pred_scores, torch.Tensor):
+                pred_scores = torch.tensor(pred_scores) if len(pred_scores) > 0 else torch.empty((0,))
             
             # Filter by confidence threshold
             conf_mask = pred_scores >= self.confidence_threshold
@@ -327,7 +407,7 @@ class Phase1DetectionAnalyzer:
                         bbox_gt=gt_box.tolist(),
                         bbox_pred=pred_boxes.tolist(),
                         scores_pred=pred_scores.tolist(),
-                        model_name="fasterrcnn_trained",
+                        model_name=f"{model_type}_trained",
                         lighting_condition=scene_conditions['lighting'],
                         crowd_density=scene_conditions['crowd_density'],
                         occlusion_level=scene_conditions['occlusion'],
@@ -555,7 +635,7 @@ class Phase1DetectionAnalyzer:
             <div class="header">
                 <h1>Phase 1: Per-Scenario/Camera Detection Analysis Report</h1>
                 <p>Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-                <p>Model: FasterRCNN (trained)</p>
+                <p>Model: {self.config.get("model", {}).get("type", "fasterrcnn").upper()} (trained)</p>
                 <p>Checkpoint: {self.config.get('local_model_path', 'N/A')}</p>
             </div>
             
