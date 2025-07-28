@@ -170,17 +170,21 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
             #                  But the model internally expects NORMALIZED coordinates [0,1]
             
             # Validate input coordinates are reasonable (should be pixel coordinates)
-            if cx < 0 or cx > width or cy < 0 or cy > height:
-                logger.warning(f"Skipping invalid box: center=({cx:.1f}, {cy:.1f}), size=({w:.1f}, {h:.1f}), image_size=({width}, {height})")
-                continue
-            
+            # Allow centers that are close to image boundaries, as long as some part of the box is within the image
             if w <= 0 or h <= 0:
                 logger.warning(f"Skipping invalid box: negative/zero size=({w:.1f}, {h:.1f})")
                 continue
             
-            # Convert from center-based to corner-based coordinates (still in pixels)
+            # Calculate box boundaries
             x_min = cx - w / 2
             y_min = cy - h / 2
+            x_max = cx + w / 2
+            y_max = cy + h / 2
+            
+            # Check if the box has any overlap with the image (more lenient validation)
+            if x_max <= 0 or x_min >= width or y_max <= 0 or y_min >= height:
+                logger.warning(f"Skipping invalid box: no overlap with image. center=({cx:.1f}, {cy:.1f}), size=({w:.1f}, {h:.1f}), image_size=({width}, {height})")
+                continue
             
             # Clamp to image bounds
             x_min = max(0, x_min)

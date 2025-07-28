@@ -1,0 +1,112 @@
+# RF-DETR Model Comparison Configuration
+# Compare initial vs trained RF-DETR detection models
+
+# --- Model Configuration ---
+model:
+  type: "rfdetr"
+  size: "base"  # Options: "base", "small", "medium", "large", "nano"
+  num_classes: 1  # person class only (0-based indexing)
+
+# --- Trained Model Path ---
+# Path to the trained RF-DETR model checkpoint
+# Update this path to your trained RF-DETR model
+trained_model_path: "checkpoints/your_rfdetr_run_id/ckpt_best_model.pth"
+
+# --- MLflow Configuration ---
+mlflow:
+  experiment_name: "Model Comparison - RF-DETR vs Initial"
+
+# --- Environment Configuration ---
+environment:
+  device: "auto"  # RF-DETR can use GPU if available
+  seed: 42
+
+# --- Data Configuration ---
+data:
+  # Update base_path to point to your MTMMC dataset
+  base_path: "D:/MTMMC"
+  
+  # Include all available scenes for comprehensive comparison
+  scenes_to_include:
+    - scene_id: "s10"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+  
+  # Use full validation set for accurate comparison
+  use_data_subset: false
+  data_subset_fraction: 1.0
+  
+  # Validation split
+  val_split_ratio: 0.2
+  num_workers: 2
+
+# --- Evaluation Configuration ---
+evaluation:
+  # Detection thresholds
+  confidence_threshold: 0.5
+  iou_threshold: 0.5
+  
+  # Metrics to calculate
+  calculate_map: true
+  calculate_precision_recall: true
+  calculate_inference_time: true
+  
+  # RF-DETR specific evaluation settings
+  max_detections_per_image: 100
+  evaluation_batch_size: 1
+
+# --- Comparison Configuration ---
+comparison:
+  # Output directory for comparison results
+  output_dir: "outputs/rfdetr_comparison"
+  
+  # Visualization settings
+  generate_charts: true
+  generate_detailed_report: true
+  
+  # Comparison parameters
+  significance_threshold: 0.05  # mAP improvement threshold
+  
+  # Export formats
+  export_formats:
+    - "json"
+    - "csv"
+    - "html"
+    - "png"
+  
+  # Report settings
+  include_sample_predictions: true
+  sample_size: 10
+  
+  # Performance analysis
+  analyze_failure_cases: true
+  analyze_improvement_patterns: true
+  
+  # RF-DETR specific analysis
+  analyze_attention_patterns: true  # Analyze transformer attention changes
+  analyze_query_performance: true  # Analyze query-based detection improvements
+
+# --- Additional Analysis ---
+analysis:
+  # Per-scene comparison
+  per_scene_analysis: true
+  
+  # Per-camera comparison
+  per_camera_analysis: true
+  
+  # Confidence score analysis
+  confidence_analysis: true
+  confidence_bins: [0.3, 0.5, 0.7, 0.9]
+  
+  # Box size analysis
+  box_size_analysis: true
+  size_categories: ["small", "medium", "large"]
+  
+  # Speed analysis
+  speed_analysis: true
+  warmup_iterations: 5
+  
+  # RF-DETR specific analysis
+  transformer_analysis: true  # Analyze transformer behavior changes
+  multi_scale_analysis: true  # Analyze multi-scale detection improvements
