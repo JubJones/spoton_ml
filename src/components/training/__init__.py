@@ -1,6 +1,6 @@
 """
 Advanced Training Components for RF-DETR Surveillance Optimization
-Comprehensive training monitoring, progress tracking, and optimization
+Comprehensive training monitoring, progress tracking, and advanced techniques
 """
 
 from .training_monitor import (
@@ -20,6 +20,18 @@ from .progress_tracker import (
     create_progress_tracker
 )
 
+from .advanced_techniques import (
+    KnowledgeDistillationTrainer,
+    DistillationConfig,
+    MixedPrecisionTrainer,
+    MixedPrecisionConfig,
+    AdvancedCheckpointManager,
+    CheckpointConfig,
+    create_distillation_trainer,
+    create_mixed_precision_trainer,
+    create_checkpoint_manager
+)
+
 __all__ = [
     # Training Monitor
     'TrainingMonitor',
@@ -34,5 +46,16 @@ __all__ = [
     'ProgressMetrics',
     'TrendAnalysis',
     'PerformancePredictor',
-    'create_progress_tracker'
+    'create_progress_tracker',
+    
+    # Advanced Techniques
+    'KnowledgeDistillationTrainer',
+    'DistillationConfig',
+    'MixedPrecisionTrainer',
+    'MixedPrecisionConfig',
+    'AdvancedCheckpointManager',
+    'CheckpointConfig',
+    'create_distillation_trainer',
+    'create_mixed_precision_trainer',
+    'create_checkpoint_manager'
 ]
