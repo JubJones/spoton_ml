@@ -327,6 +327,76 @@ def compute_map_metrics(
         return map_metrics
 
 
+def calculate_map_metrics(predictions: List[Dict], ground_truth: List[Dict]) -> Dict[str, float]:
+    """
+    Calculate mAP metrics from predictions and ground truth.
+    
+    This is a wrapper function that provides compatibility with the detection model 
+    comparison pipeline. It converts the input format to torchmetrics format and
+    computes mAP metrics.
+    
+    Args:
+        predictions: List of prediction dicts with keys 'boxes', 'scores', 'labels'
+        ground_truth: List of ground truth dicts with keys 'boxes', 'labels'
+        
+    Returns:
+        Dict with mAP metrics
+    """
+    if not TORCHMETRICS_AVAILABLE:
+        logger.warning("torchmetrics not available, returning empty metrics")
+        return {"map_50": 0.0, "map_75": 0.0, "map_50_95": 0.0}
+    
+    if not predictions or not ground_truth:
+        logger.warning("Empty predictions or ground truth, returning zero metrics")
+        return {"map_50": 0.0, "map_75": 0.0, "map_50_95": 0.0}
+    
+    try:
+        # Convert to torchmetrics format
+        torch_predictions = []
+        torch_targets = []
+        
+        for pred, gt in zip(predictions, ground_truth):
+            # Convert numpy arrays to tensors if needed
+            pred_boxes = torch.from_numpy(pred['boxes']) if isinstance(pred['boxes'], np.ndarray) else pred['boxes']
+            pred_scores = torch.from_numpy(pred['scores']) if isinstance(pred['scores'], np.ndarray) else pred['scores']
+            pred_labels = torch.from_numpy(pred['labels']) if isinstance(pred['labels'], np.ndarray) else pred['labels']
+            
+            gt_boxes = torch.from_numpy(gt['boxes']) if isinstance(gt['boxes'], np.ndarray) else gt['boxes']
+            gt_labels = torch.from_numpy(gt['labels']) if isinstance(gt['labels'], np.ndarray) else gt['labels']
+            
+            # Ensure correct data types
+            pred_boxes = pred_boxes.float()
+            pred_scores = pred_scores.float()
+            pred_labels = pred_labels.long()
+            gt_boxes = gt_boxes.float()
+            gt_labels = gt_labels.long()
+            
+            torch_predictions.append({
+                'boxes': pred_boxes,
+                'scores': pred_scores,
+                'labels': pred_labels
+            })
+            
+            torch_targets.append({
+                'boxes': gt_boxes,
+                'labels': gt_labels
+            })
+        
+        # Calculate mAP using torchmetrics
+        result = compute_map_metrics(torch_predictions, torch_targets, torch.device('cpu'))
+        
+        # Return standardized format
+        return {
+            "map_50": result.get("eval_map_50", 0.0),
+            "map_75": result.get("eval_map_75", 0.0),
+            "map_50_95": result.get("eval_map", 0.0)
+        }
+        
+    except Exception as e:
+        logger.error(f"Error calculating mAP metrics: {e}")
+        return {"map_50": 0.0, "map_75": 0.0, "map_50_95": 0.0}
+
+
 def calculate_frame_detection_score(
     pred_dict: Dict[str, torch.Tensor],
     target_dict: Dict[str, torch.Tensor],

@@ -1,0 +1,157 @@
+# Detection Model Comparison Configuration
+# Compare RF-DETR vs FasterRCNN detection performance
+
+# --- Model Configurations ---
+models:
+  rfdetr:
+    type: "rfdetr"
+    size: "base"
+    num_classes: 2
+    trained_model_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/spoton_ml/checkpoints/rfdetr/checkpoint_best_total.pth"
+    
+  fasterrcnn:
+    type: "fasterrcnn"
+    backbone_weights: "FasterRCNN_ResNet50_FPN_Weights.DEFAULT"
+    num_classes: 2
+    trainable_backbone_layers: 3
+    trained_model_path: "checkpoints/7af7b38617994e41adbd761df223cf93/ckpt_best_eval_map_50.pth"
+
+# --- MLflow Configuration ---
+mlflow:
+  experiment_name: "Detection Model Comparison - RF-DETR vs FasterRCNN"
+
+# --- Environment Configuration ---
+environment:
+  device: "auto"  # Auto-select best available device
+  seed: 42
+
+# --- Data Configuration ---
+data:
+  # Update base_path to point to your MTMMC dataset
+  base_path: "D:/MTMMC"
+  
+  # Include all available scenes for comprehensive comparison
+  scenes_to_include:
+    - scene_id: "s10"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+  
+  # Use full dataset for robust comparison
+  use_data_subset: false
+  data_subset_fraction: 1.0
+  
+  # Validation split
+  val_split_ratio: 0.2
+  num_workers: 2
+
+# --- Comparison Configuration ---
+comparison:
+  output_dir: "outputs/detection_model_comparison"
+  
+  # Evaluation thresholds
+  confidence_threshold: 0.5
+  iou_threshold: 0.5
+  
+  # Comparison settings
+  metrics_to_compare:
+    - "map_50"
+    - "map_75" 
+    - "map_50_95"
+    - "precision"
+    - "recall"
+    - "f1_score"
+    - "inference_time_ms"
+  
+  # Statistical analysis
+  statistical_tests:
+    enabled: true
+    significance_level: 0.05
+    
+  # Visualization settings
+  visualizations:
+    generate_comparison_charts: true
+    generate_performance_heatmap: true
+    generate_per_scene_analysis: true
+    generate_confidence_analysis: true
+    colors:
+      rfdetr: "#FF6B35"      # Orange/Red for RF-DETR
+      fasterrcnn: "#004E89"  # Blue for FasterRCNN
+    
+  # Per-scenario analysis
+  scenario_analysis:
+    enabled: true
+    analyze_per_camera: true
+    analyze_per_scene: true
+    generate_failure_comparison: true
+    
+  # Advanced comparison metrics
+  advanced_metrics:
+    analyze_detection_confidence_distribution: true
+    analyze_box_size_performance: true
+    analyze_inference_speed_vs_accuracy: true
+    analyze_environmental_factors: true
+    
+  # Model-specific analysis
+  model_specific_analysis:
+    rfdetr:
+      analyze_attention_patterns: true
+      analyze_query_performance: true
+      analyze_transformer_layers: false  # Computationally expensive
+      
+    fasterrcnn:
+      analyze_rpn_performance: true
+      analyze_backbone_features: true
+      analyze_anchor_utilization: false  # Computationally expensive
+      
+  # Reporting
+  reports:
+    generate_html_report: true
+    generate_executive_summary: true
+    generate_technical_report: true
+    include_recommendations: true
+    
+  # Export formats
+  export_formats:
+    - "json"
+    - "csv"
+    - "xlsx"
+    - "html"
+
+# --- Performance Benchmarking ---
+benchmarking:
+  # Speed benchmarking
+  measure_inference_speed: true
+  inference_iterations: 100  # Number of iterations for speed measurement
+  warmup_iterations: 10      # Warmup iterations before measurement
+  
+  # Memory benchmarking
+  measure_memory_usage: true
+  memory_profiling_samples: 50
+  
+  # Scalability analysis
+  test_batch_sizes: [1, 4, 8]  # Different batch sizes to test
+  
+# --- Quality Gates ---
+quality_gates:
+  minimum_map_50: 0.3        # Minimum acceptable mAP@0.5
+  maximum_inference_time: 1000  # Maximum acceptable inference time (ms)
+  minimum_precision: 0.5     # Minimum acceptable precision
+  minimum_recall: 0.5        # Minimum acceptable recall
+  
+# --- Debug and Development ---
+debug:
+  save_sample_detections: true
+  save_failure_cases: true
+  save_confidence_distributions: true
+  verbose_logging: false
+  
+# --- Robustness Testing ---
+robustness:
+  test_different_confidences: true
+  confidence_thresholds: [0.1, 0.3, 0.5, 0.7, 0.9]
+  
+  test_different_ious: true
+  iou_thresholds: [0.3, 0.5, 0.7, 0.9]
+  
+  test_image_corruption: false  # Add noise, blur, etc. for robustness testing
