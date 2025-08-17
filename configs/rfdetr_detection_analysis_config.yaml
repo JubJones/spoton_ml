@@ -25,7 +25,7 @@ environment:
 data:
   # Update base_path to point to your MTMMC dataset
   # This should point to the directory CONTAINING the 'train' folder
-  base_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/MTMMC"
+  base_path: "D:/MTMMC"
   
   # Include all available scenes for comprehensive analysis
   scenes_to_include:
