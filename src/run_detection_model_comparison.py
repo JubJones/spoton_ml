@@ -303,13 +303,13 @@ def main():
         output_dir = Path(config.get("comparison", {}).get("output_dir", "outputs/detection_model_comparison"))
         logger.info(f"Results saved to: {output_dir}")
         logger.info("Generated outputs:")
-        logger.info("  📊 visualizations/: Performance comparison charts")
-        logger.info("  📋 reports/: Executive summary and technical reports") 
-        logger.info("  📈 comparison_data.json: Raw comparison data")
-        logger.info("  📊 performance_metrics.csv: Tabulated metrics")
+        logger.info("  * visualizations/: Performance comparison charts")
+        logger.info("  * reports/: Executive summary and technical reports") 
+        logger.info("  * comparison_data.json: Raw comparison data")
+        logger.info("  * performance_metrics.csv: Tabulated metrics")
         
         if experiment_id:
-            logger.info(f"  🔬 MLflow Experiment ID: {experiment_id}")
+            logger.info(f"  * MLflow Experiment ID: {experiment_id}")
         
         final_status = "COMPLETED"
         logger.info("Detection model comparison completed successfully!")

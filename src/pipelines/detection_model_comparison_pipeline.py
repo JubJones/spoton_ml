@@ -21,6 +21,7 @@ from dataclasses import dataclass, asdict
 import json
 from datetime import datetime
 import statistics
+import warnings
 
 import torch
 import torch.nn as nn
@@ -32,6 +33,9 @@ from tqdm import tqdm
 from PIL import Image
 import cv2
 from scipy import stats
+
+# Suppress torch.meshgrid warning about indexing argument
+warnings.filterwarnings("ignore", message=".*torch.meshgrid: in an upcoming release.*")
 
 # Import model-specific components
 from src.components.data.training_dataset import MTMMCDetectionDataset
@@ -85,13 +89,19 @@ class DetectionModelLoader:
         """Load RF-DETR model with trained weights."""
         logger.info("Loading RF-DETR model...")
         
-        # Create temporary config for RF-DETR
+        # Check if we have a trained checkpoint to determine correct num_classes
+        checkpoint_path = model_config.get("trained_model_path")
+        has_trained_checkpoint = checkpoint_path and Path(checkpoint_path).exists()
+        
+        # Create temporary config for RF-DETR with proper checkpoint path mapping
         rfdetr_config = {
             "model": {
                 "type": "rfdetr",
                 "size": model_config.get("size", "base"),
                 "num_classes": model_config.get("num_classes", 2)
-            }
+            },
+            # Map trained_model_path to local_model_path for get_rfdetr_model compatibility
+            "local_model_path": checkpoint_path if has_trained_checkpoint else None
         }
         
         model = get_rfdetr_model(rfdetr_config)
@@ -112,6 +122,14 @@ class DetectionModelLoader:
                     model.model.load_state_dict(checkpoint)
         else:
             logger.warning("No RF-DETR checkpoint found, using pre-trained weights")
+        
+        # Optimize model for inference to reduce latency warnings
+        try:
+            if hasattr(model, 'optimize_for_inference'):
+                model.optimize_for_inference()
+                logger.info("RF-DETR model optimized for inference")
+        except Exception as opt_e:
+            logger.debug(f"Could not optimize RF-DETR model for inference: {opt_e}")
         
         return model
     
@@ -291,7 +309,7 @@ class DetectionModelEvaluator:
                 if original_image is not None:
                     image_pil = Image.fromarray(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
                     
-                    # Try RF-DETR prediction
+                    # Try RF-DETR prediction with better error handling
                     try:
                         results = model.predict(image_pil)
                         
@@ -323,12 +341,26 @@ class DetectionModelEvaluator:
                                 'scores': scores,
                                 'labels': labels
                             }
+                        else:
+                            # Log when results is None for debugging
+                            if sample_idx < 5:  # Only log first few for debugging
+                                logger.warning(f"RF-DETR returned None results for sample {sample_idx}")
                     
                     except Exception as pred_e:
-                        logger.debug(f"RF-DETR prediction failed for sample {sample_idx}: {pred_e}")
+                        # Use warning instead of debug for critical failures
+                        if sample_idx < 5:  # Only log first few to avoid spam
+                            logger.warning(f"RF-DETR prediction failed for sample {sample_idx}: {pred_e}")
+                else:
+                    if sample_idx < 5:  # Only log first few for debugging
+                        logger.warning(f"Could not load image for sample {sample_idx}: {image_path}")
+            else:
+                if sample_idx < 5:  # Only log first few for debugging
+                    logger.warning(f"Image path not found for sample {sample_idx}: {image_path}")
                         
         except Exception as e:
-            logger.debug(f"RF-DETR inference setup failed for sample {sample_idx}: {e}")
+            # Use warning instead of debug for setup failures
+            if sample_idx < 5:  # Only log first few to avoid spam
+                logger.warning(f"RF-DETR inference setup failed for sample {sample_idx}: {e}")
         
         # Return empty prediction if failed
         return {
@@ -1060,8 +1092,8 @@ class DetectionModelComparisonPipeline:
             # Log parameters
             log_params({
                 "dataset_size": len(self.evaluator.dataset),
-                "confidence_threshold": self.confidence_threshold,
-                "iou_threshold": self.iou_threshold,
+                "confidence_threshold": self.evaluator.confidence_threshold,
+                "iou_threshold": self.evaluator.iou_threshold,
                 "comparison_type": "rfdetr_vs_fasterrcnn"
             })
             

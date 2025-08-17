@@ -1,9 +1,29 @@
 mlflow:
   experiment_name: "MTMMC Detection Training (RF-DETR)"
+  
+  # Enhanced MLflow tracking configuration
+  tracking_uri: null  # Uses local mlruns/ directory if null
+  artifact_location: null  # Uses default artifact store if null
+  
+  # Enable comprehensive logging
+  log_system_metrics: true
+  log_model_artifacts: true
+  log_confusion_matrix: true
+  log_training_curves: true
 
 environment:
   device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
   seed: 42
+  
+  # Environment validation settings
+  validate_gpu: true  # Validate GPU capabilities before training
+  validate_dataset: true  # Validate dataset integrity before training
+  memory_fraction: 0.9  # GPU memory fraction to use (0.0-1.0)
+  
+  # Performance optimization
+  enable_mixed_precision: true
+  enable_gradient_checkpointing: false
+  num_workers_auto: true  # Auto-determine optimal num_workers
 
 debug:
   enable_box_debug: false # Set to true to enable detailed box processing debug logs
@@ -32,8 +52,8 @@ models_to_train:
   # --- RF-DETR Configuration ---
   - model:
       type: "rfdetr"
-      name_tag: "RFDETR_Base" # Used for run naming if run_name isn't specified below
-      size: "base" # Options: "base", "small", "medium", "large", "nano"
+      name_tag: "RFDETR_Medium" # Used for run naming if run_name isn't specified below
+      size: "medium" # Options: "base", "small", "medium", "large", "nano"
       num_classes: 1 # person class only (0-based indexing, no background class needed)
 
     training:
