@@ -100,7 +100,7 @@ def load_trained_fasterrcnn(
 
     # 2. Load the checkpoint
     try:
-        checkpoint = torch.load(ckpt_load_path, map_location=device)
+        checkpoint = torch.load(ckpt_load_path, map_location=device, weights_only=False)
     except Exception as load_err:
         logger.error(f"Failed to load checkpoint file {ckpt_load_path}: {load_err}")
         raise RuntimeError(f"Checkpoint loading failed: {load_err}") from load_err

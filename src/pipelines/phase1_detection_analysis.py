@@ -132,7 +132,7 @@ class Phase1DetectionAnalyzer:
             
             # Load weights from checkpoint
             if checkpoint_path and Path(checkpoint_path).exists():
-                checkpoint = torch.load(checkpoint_path, map_location=self.device)
+                checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
                 
                 # Handle different checkpoint formats
                 if 'model_state_dict' in checkpoint:
@@ -156,7 +156,7 @@ class Phase1DetectionAnalyzer:
             if checkpoint_path and Path(checkpoint_path).exists():
                 try:
                     # RF-DETR models may have different checkpoint formats
-                    checkpoint = torch.load(checkpoint_path, map_location=self.device)
+                    checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
                     
                     # Handle different RF-DETR checkpoint formats
                     if hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):

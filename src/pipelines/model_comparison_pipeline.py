@@ -92,7 +92,7 @@ class UnifiedModelLoader:
             model = get_fasterrcnn_model(self.config)
             
             # Load checkpoint
-            checkpoint = torch.load(checkpoint_path, map_location=self.device)
+            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
             
             # Handle different checkpoint formats
             if 'model_state_dict' in checkpoint:
@@ -108,7 +108,7 @@ class UnifiedModelLoader:
             model = get_rfdetr_model(self.config)
             
             # Load checkpoint
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
             
             # Handle different RF-DETR checkpoint formats
             if hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):

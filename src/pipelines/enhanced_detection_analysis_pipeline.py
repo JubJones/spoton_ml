@@ -162,7 +162,7 @@ class EnhancedDetectionAnalysisPipeline:
         model = get_fasterrcnn_model(self.config)
         logger.info(f"Loading model weights from: {model_path}")
         
-        checkpoint = torch.load(model_path, map_location=self.device)
+        checkpoint = torch.load(model_path, map_location=self.device, weights_only=False)
         state_dict_key = 'model_state_dict'
         if state_dict_key not in checkpoint:
             logger.warning(f"'{state_dict_key}' not in checkpoint. Using checkpoint as state_dict.")

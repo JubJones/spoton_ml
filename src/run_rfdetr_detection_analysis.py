@@ -63,7 +63,8 @@ def validate_rfdetr_checkpoint(checkpoint_path: str) -> bool:
         # Try to load and check if it contains RF-DETR model structure
         import torch
         try:
-            checkpoint = torch.load(checkpoint_path, map_location='cpu')
+            # RF-DETR checkpoints contain argparse.Namespace which requires weights_only=False
+            checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
             
             # Check for RF-DETR model structure indicators
             if isinstance(checkpoint, dict):
