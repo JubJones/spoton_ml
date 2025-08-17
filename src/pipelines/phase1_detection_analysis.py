@@ -197,7 +197,7 @@ class Phase1DetectionAnalyzer:
             if hasattr(model, 'optimize_for_inference'):
                 try:
                     model.optimize_for_inference()
-                    logger.info("✅ Optimized RF-DETR model for inference")
+                    logger.info("[✓] Optimized RF-DETR model for inference")
                 except Exception as opt_error:
                     logger.warning(f"Could not optimize RF-DETR for inference: {opt_error}")
             
