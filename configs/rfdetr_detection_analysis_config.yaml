@@ -4,7 +4,7 @@
 # --- Model Configuration ---
 # Update this path to point to your trained RF-DETR model checkpoint
 # Leave empty or set to non-existent path to use pre-trained model
-local_model_path: ""
+local_model_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/spoton_ml/checkpoints/rfdetr/checkpoint_best_total.pth"
 
 model:
   type: "rfdetr"
@@ -24,7 +24,8 @@ environment:
 # --- Data Configuration ---
 data:
   # Update base_path to point to your MTMMC dataset
-  base_path: "data/MTMMC"
+  # This should point to the directory CONTAINING the 'train' folder
+  base_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/MTMMC"
   
   # Include all available scenes for comprehensive analysis
   scenes_to_include:

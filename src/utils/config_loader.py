@@ -21,7 +21,7 @@ def load_config(config_path: str = "configs/experiment_config.yaml") -> Optional
             return None
 
     try:
-        with open(full_config_path, 'r') as f:
+        with open(full_config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
         logger.info(f"Successfully loaded configuration from: {full_config_path}")
 
