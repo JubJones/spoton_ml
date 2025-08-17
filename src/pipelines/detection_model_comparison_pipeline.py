@@ -193,22 +193,33 @@ class DetectionModelEvaluator:
         confidence_scores = []
         box_sizes = []
         
-        model.eval()
-        with torch.no_grad():
+        # Set model to eval mode (only for PyTorch models)
+        if hasattr(model, 'eval'):
+            model.eval()
+        
+        # Use torch.no_grad only for PyTorch models
+        context_manager = torch.no_grad() if model_type == "fasterrcnn" else torch.enable_grad()
+        
+        with context_manager:
             for i in tqdm(range(len(self.dataset)), desc=f"Evaluating {model_name}"):
-                # Get sample with metadata
-                sample_data = self.dataset.get_sample_with_metadata(i) if hasattr(self.dataset, 'get_sample_with_metadata') else None
                 image_tensor, target = self.dataset[i]
                 
-                # Extract scene/camera info if available
-                scene_info = {}
-                if sample_data:
-                    scene_info = {
-                        'scene_id': sample_data.get('scene_id', 'unknown'),
-                        'camera_id': sample_data.get('camera_id', 'unknown')
-                    }
-                else:
-                    scene_info = {'scene_id': 'unknown', 'camera_id': 'unknown'}
+                # Extract scene/camera info from image path
+                scene_info = {'scene_id': 'unknown', 'camera_id': 'unknown'}
+                try:
+                    image_path = self.dataset.get_image_path(i)
+                    if image_path:
+                        # Handle both Windows and Unix path separators
+                        path_parts = str(image_path).replace('\\', '/').split('/')
+                        # Try to extract scene and camera from path structure
+                        for j, part in enumerate(path_parts):
+                            if part.startswith('s') and len(part) > 1 and part[1:].isdigit():  # Scene ID
+                                scene_info['scene_id'] = part
+                            elif part.startswith('c') and len(part) > 1 and part[1:].isdigit():  # Camera ID
+                                scene_info['camera_id'] = part
+                except Exception as e:
+                    logger.debug(f"Failed to extract scene/camera info from path: {e}")
+                    pass  # Use default 'unknown' values
                 
                 # Run inference with timing
                 start_time = time.perf_counter()
@@ -271,22 +282,53 @@ class DetectionModelEvaluator:
     
     def _run_rfdetr_inference(self, model: nn.Module, sample_idx: int) -> Dict[str, np.ndarray]:
         """Run RF-DETR inference."""
-        # Get image path and load image
-        image_path = self.dataset.get_image_path(sample_idx) if hasattr(self.dataset, 'get_image_path') else None
-        
-        if image_path and Path(image_path).exists():
-            original_image = cv2.imread(str(image_path))
-            if original_image is not None:
-                image_pil = Image.fromarray(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
-                results = model.predict(image_pil)
-                
-                # Extract predictions
-                if results and hasattr(results, 'boxes') and results.boxes is not None:
-                    return {
-                        'boxes': results.boxes.xyxy.cpu().numpy(),
-                        'scores': results.boxes.conf.cpu().numpy(),
-                        'labels': results.boxes.cls.cpu().numpy()
-                    }
+        try:
+            # Get image path and load image
+            image_path = self.dataset.get_image_path(sample_idx) if hasattr(self.dataset, 'get_image_path') else None
+            
+            if image_path and Path(image_path).exists():
+                original_image = cv2.imread(str(image_path))
+                if original_image is not None:
+                    image_pil = Image.fromarray(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
+                    
+                    # Try RF-DETR prediction
+                    try:
+                        results = model.predict(image_pil)
+                        
+                        # Extract predictions - handle different result formats
+                        if results is not None:
+                            # Handle Ultralytics-style results
+                            if hasattr(results, 'boxes') and results.boxes is not None:
+                                boxes = results.boxes.xyxy.cpu().numpy()
+                                scores = results.boxes.conf.cpu().numpy()
+                                labels = results.boxes.cls.cpu().numpy()
+                            # Handle list of results
+                            elif isinstance(results, list) and len(results) > 0:
+                                result = results[0]
+                                if hasattr(result, 'boxes') and result.boxes is not None:
+                                    boxes = result.boxes.xyxy.cpu().numpy()
+                                    scores = result.boxes.conf.cpu().numpy()
+                                    labels = result.boxes.cls.cpu().numpy()
+                                else:
+                                    boxes = np.array([]).reshape(0, 4)
+                                    scores = np.array([])
+                                    labels = np.array([])
+                            else:
+                                boxes = np.array([]).reshape(0, 4)
+                                scores = np.array([])
+                                labels = np.array([])
+                            
+                            return {
+                                'boxes': boxes,
+                                'scores': scores,
+                                'labels': labels
+                            }
+                    
+                    except Exception as pred_e:
+                        logger.debug(f"RF-DETR prediction failed for sample {sample_idx}: {pred_e}")
+                        
+        except Exception as e:
+            logger.debug(f"RF-DETR inference setup failed for sample {sample_idx}: {e}")
         
         # Return empty prediction if failed
         return {
