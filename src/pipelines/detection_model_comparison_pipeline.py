@@ -131,6 +131,40 @@ class DetectionModelLoader:
         except Exception as opt_e:
             logger.debug(f"Could not optimize RF-DETR model for inference: {opt_e}")
         
+        # Smart device placement: GPU for CUDA, CPU for MPS (Mac compatibility)
+        target_device = self.device
+        
+        # Handle MPS compatibility issues on Mac
+        if str(self.device) == 'mps':
+            # MPS has known issues with RF-DETR operators
+            target_device = torch.device('cpu')
+            logger.warning("RF-DETR moved to CPU due to MPS compatibility issues on Mac")
+            # Set fallback for MPS-specific operators
+            import os
+            os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
+        elif torch.cuda.is_available() and 'cuda' in str(self.device):
+            # Use GPU acceleration on PC/CUDA systems
+            target_device = self.device  
+            logger.info(f"RF-DETR will use GPU acceleration: {target_device}")
+        else:
+            # Fallback to CPU
+            target_device = torch.device('cpu')
+            logger.info("RF-DETR will use CPU (no CUDA available)")
+        
+        # Move model to target device
+        if hasattr(model, 'model') and hasattr(model.model, 'to'):
+            model.model.to(target_device)
+            logger.info(f"RF-DETR model moved to: {target_device}")
+        elif hasattr(model, 'to'):
+            model.to(target_device)
+            logger.info(f"RF-DETR model moved to: {target_device}")
+        
+        # Log GPU memory usage if using CUDA
+        if torch.cuda.is_available() and 'cuda' in str(target_device):
+            memory_allocated = torch.cuda.memory_allocated(target_device) / 1024**3  # GB
+            memory_reserved = torch.cuda.memory_reserved(target_device) / 1024**3   # GB
+            logger.info(f"GPU memory - Allocated: {memory_allocated:.2f}GB, Reserved: {memory_reserved:.2f}GB")
+        
         return model
     
     def load_fasterrcnn_model(self, model_config: Dict[str, Any]) -> nn.Module:
@@ -309,9 +343,17 @@ class DetectionModelEvaluator:
                 if original_image is not None:
                     image_pil = Image.fromarray(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
                     
-                    # Try RF-DETR prediction with better error handling
+                    # Try RF-DETR prediction with comprehensive error handling
                     try:
                         results = model.predict(image_pil)
+                        
+                        # Debug: Log successful predictions for first few samples
+                        if sample_idx < 3 and results is not None:
+                            logger.info(f"RF-DETR prediction successful for sample {sample_idx}, result type: {type(results)}")
+                            if hasattr(results, 'boxes'):
+                                logger.info(f"  Boxes available: {results.boxes is not None}")
+                                if results.boxes is not None:
+                                    logger.info(f"  Number of detections: {len(results.boxes)}")
                         
                         # Extract predictions - handle different result formats
                         if results is not None:
@@ -320,6 +362,11 @@ class DetectionModelEvaluator:
                                 boxes = results.boxes.xyxy.cpu().numpy()
                                 scores = results.boxes.conf.cpu().numpy()
                                 labels = results.boxes.cls.cpu().numpy()
+                                
+                                # Debug: Log successful extraction
+                                if sample_idx < 3:
+                                    logger.info(f"  Extracted {len(boxes)} detections: boxes={boxes.shape}, scores={scores.shape}")
+                                    
                             # Handle list of results
                             elif isinstance(results, list) and len(results) > 0:
                                 result = results[0]
@@ -335,6 +382,10 @@ class DetectionModelEvaluator:
                                 boxes = np.array([]).reshape(0, 4)
                                 scores = np.array([])
                                 labels = np.array([])
+                                
+                                # Debug: Log when no valid predictions
+                                if sample_idx < 5:
+                                    logger.warning(f"RF-DETR results format not recognized for sample {sample_idx}: {type(results)}")
                             
                             return {
                                 'boxes': boxes,
@@ -348,8 +399,10 @@ class DetectionModelEvaluator:
                     
                     except Exception as pred_e:
                         # Use warning instead of debug for critical failures
-                        if sample_idx < 5:  # Only log first few to avoid spam
-                            logger.warning(f"RF-DETR prediction failed for sample {sample_idx}: {pred_e}")
+                        if sample_idx < 10:  # Log first 10 errors to understand pattern
+                            logger.error(f"RF-DETR prediction failed for sample {sample_idx}: {type(pred_e).__name__}: {pred_e}")
+                        elif sample_idx == 10:
+                            logger.error("RF-DETR prediction failures continue... suppressing further error logs")
                 else:
                     if sample_idx < 5:  # Only log first few for debugging
                         logger.warning(f"Could not load image for sample {sample_idx}: {image_path}")

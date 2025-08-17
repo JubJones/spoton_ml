@@ -1,0 +1,97 @@
+# Basic Augmentation Configuration for RF-DETR Training
+# Suitable for development, testing, and initial training experiments
+
+augmentation:
+  # Pipeline configuration
+  pipeline_type: "basic"
+  global_severity: 0.4
+  max_augmentations_per_image: 3
+  shuffle_order: true
+  
+  # Geometric augmentations
+  geometric:
+    enabled: true
+    horizontal_flip:
+      probability: 0.5
+      severity: 1.0  # Binary operation
+    
+    random_scale:
+      probability: 0.6
+      severity: 0.4
+      scale_min: 0.85
+      scale_max: 1.15
+      maintain_aspect_ratio: true
+    
+    random_translation:
+      probability: 0.4
+      severity: 0.3
+      max_translation_ratio: 0.08
+  
+  # Photometric augmentations
+  photometric:
+    enabled: true
+    brightness_contrast:
+      probability: 0.7
+      severity: 0.4
+      brightness_range: [-0.15, 0.15]
+      contrast_range: [0.85, 1.15]
+    
+    color_jitter:
+      probability: 0.5
+      severity: 0.3
+      hue_range: [-8, 8]
+      saturation_range: [0.9, 1.1]
+    
+    gaussian_noise:
+      probability: 0.3
+      severity: 0.3
+      noise_std_range: [3, 15]
+  
+  # Occlusion augmentations
+  occlusion:
+    enabled: true
+    random_erasing:
+      probability: 0.5
+      severity: 0.4
+      area_range: [0.02, 0.12]
+      aspect_ratio_range: [0.4, 2.5]
+      fill_mode: "random"
+  
+  # Surveillance augmentations
+  surveillance:
+    enabled: true
+    lighting_variation:
+      probability: 0.6
+      severity: 0.4
+      time_of_day_effects: true
+      shadow_simulation: false  # Disabled for basic config
+      scenarios: ["dawn", "noon", "dusk", "artificial"]
+
+# Training integration
+training_integration:
+  # Data loader settings
+  apply_to_training: true
+  apply_to_validation: false  # Typically no augmentation for validation
+  
+  # Performance settings
+  num_workers: 2
+  pin_memory: true
+  prefetch_factor: 2
+  
+  # Caching
+  cache_augmented_samples: false
+  cache_size_mb: 0
+
+# Validation and monitoring
+validation:
+  # Performance thresholds
+  max_processing_time_ms: 50
+  min_bbox_retention_ratio: 0.8
+  
+  # Quality checks
+  validate_bbox_integrity: true
+  validate_image_quality: true
+  log_augmentation_stats: true
+  
+  # Frequency of validation checks
+  validation_frequency: 100  # Every 100 batches

@@ -1,0 +1,149 @@
+{
+  "summary": {
+    "step": 500,
+    "epoch": 10,
+    "overall_metrics": {
+      "mAP": 0.44557723916034986,
+      "mAP_std": 0.1481219028108843,
+      "mAP_min": 0.27498386263868313,
+      "mAP_max": 0.6361524724988875,
+      "recall": 0.42557723916034984,
+      "recall_std": 0.1481219028108843,
+      "recall_min": 0.2549838626386831,
+      "recall_max": 0.6161524724988875,
+      "precision": 0.4955772391603499,
+      "precision_std": 0.14812190281088433,
+      "precision_min": 0.3249838626386831,
+      "precision_max": 0.6861524724988876,
+      "F1": 0.4655772391603499,
+      "F1_std": 0.1481219028108843,
+      "F1_min": 0.29498386263868315,
+      "F1_max": 0.6561524724988875,
+      "inference_time": 58.435478418525385,
+      "inference_time_std": 3.5268300095154705,
+      "inference_time_min": 53.89915283854855,
+      "inference_time_max": 62.49922121184538,
+      "avg_inference_time": 0.0
+    },
+    "scene_count": 3,
+    "scene_variance": {
+      "mAP": 0.02194009809231705,
+      "precision": 0.021940098092317062,
+      "recall": 0.02194009809231705,
+      "F1": 0.02194009809231705,
+      "inference_time": 12.438529916018894
+    },
+    "difficulty_correlation": {
+      "mAP": -0.999811273635597,
+      "precision": -0.9998112736355972,
+      "recall": -0.999811273635597
+    },
+    "recommendations": {
+      "training_adjustments": [
+        "Weak correlation between performance and scene difficulty. Model may need more challenging training data."
+      ],
+      "data_augmentation": [],
+      "model_architecture": [],
+      "priority_scenes": [
+        {
+          "scene_id": "DukeMTMC_scene03",
+          "performance": 0.27498386263868313,
+          "difficulty": 0.78,
+          "crowd_level": "high",
+          "suggestion": "Increase sampling weight or specific augmentation"
+        }
+      ]
+    }
+  },
+  "scene_results": {
+    "DukeMTMC_scene01": {
+      "scene_id": "DukeMTMC_scene01",
+      "difficulty": 0.25,
+      "crowd_level": "low",
+      "metrics": {
+        "mAP": 0.6361524724988875,
+        "precision": 0.6861524724988876,
+        "recall": 0.6161524724988875,
+        "F1": 0.6561524724988875,
+        "inference_time": 53.89915283854855
+      },
+      "avg_inference_time": 0.0,
+      "performance_difficulty_ratio": 2.54460988999555
+    },
+    "DukeMTMC_scene02": {
+      "scene_id": "DukeMTMC_scene02",
+      "difficulty": 0.55,
+      "crowd_level": "medium",
+      "metrics": {
+        "mAP": 0.4255953823434789,
+        "precision": 0.4755953823434789,
+        "recall": 0.40559538234347886,
+        "F1": 0.4455953823434789,
+        "inference_time": 58.908061205182214
+      },
+      "avg_inference_time": 0.0,
+      "performance_difficulty_ratio": 0.7738097860790525
+    },
+    "DukeMTMC_scene03": {
+      "scene_id": "DukeMTMC_scene03",
+      "difficulty": 0.78,
+      "crowd_level": "high",
+      "metrics": {
+        "mAP": 0.27498386263868313,
+        "precision": 0.3249838626386831,
+        "recall": 0.2549838626386831,
+        "F1": 0.29498386263868315,
+        "inference_time": 62.49922121184538
+      },
+      "avg_inference_time": 0.0,
+      "performance_difficulty_ratio": 0.35254341363933733
+    }
+  },
+  "detailed_analysis": {
+    "performance_distribution": {
+      "mAP": {
+        "mean": 0.44557723916034986,
+        "median": 0.4255953823434789,
+        "q25": 0.350289622491081,
+        "q75": 0.5308739274211832,
+        "iqr": 0.18058430493010225,
+        "outliers_low": 0,
+        "outliers_high": 0
+      },
+      "precision": {
+        "mean": 0.4955772391603499,
+        "median": 0.4755953823434789,
+        "q25": 0.400289622491081,
+        "q75": 0.5808739274211833,
+        "iqr": 0.18058430493010225,
+        "outliers_low": 0,
+        "outliers_high": 0
+      },
+      "recall": {
+        "mean": 0.42557723916034984,
+        "median": 0.40559538234347886,
+        "q25": 0.33028962249108096,
+        "q75": 0.5108739274211832,
+        "iqr": 0.18058430493010225,
+        "outliers_low": 0,
+        "outliers_high": 0
+      }
+    },
+    "recommendations": {
+      "training_adjustments": [
+        "Weak correlation between performance and scene difficulty. Model may need more challenging training data."
+      ],
+      "data_augmentation": [],
+      "model_architecture": [],
+      "priority_scenes": [
+        {
+          "scene_id": "DukeMTMC_scene03",
+          "performance": 0.27498386263868313,
+          "difficulty": 0.78,
+          "crowd_level": "high",
+          "suggestion": "Increase sampling weight or specific augmentation"
+        }
+      ]
+    }
+  }
+}
