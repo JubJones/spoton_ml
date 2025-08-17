@@ -87,11 +87,15 @@ class DetectionModelLoader:
         
     def load_rfdetr_model(self, model_config: Dict[str, Any]) -> nn.Module:
         """Load RF-DETR model with trained weights."""
-        logger.info("Loading RF-DETR model...")
+        logger.info("🔍 DEBUG: Starting RF-DETR model loading...")
         
         # Check if we have a trained checkpoint to determine correct num_classes
         checkpoint_path = model_config.get("trained_model_path")
         has_trained_checkpoint = checkpoint_path and Path(checkpoint_path).exists()
+        
+        logger.info(f"🔍 DEBUG: Checkpoint path: {checkpoint_path}")
+        logger.info(f"🔍 DEBUG: Has trained checkpoint: {has_trained_checkpoint}")
+        logger.info(f"🔍 DEBUG: Model config: {model_config}")
         
         # Create temporary config for RF-DETR with proper checkpoint path mapping
         rfdetr_config = {
@@ -104,67 +108,116 @@ class DetectionModelLoader:
             "local_model_path": checkpoint_path if has_trained_checkpoint else None
         }
         
+        logger.info(f"🔍 DEBUG: RF-DETR config: {rfdetr_config}")
+        
         model = get_rfdetr_model(rfdetr_config)
+        logger.info(f"🔍 DEBUG: RF-DETR model created: {type(model)}")
+        logger.info(f"🔍 DEBUG: Model attributes: {dir(model)}")
+        
+        # Check model structure
+        if hasattr(model, 'model'):
+            logger.info(f"🔍 DEBUG: Model has 'model' attribute: {type(model.model)}")
+        if hasattr(model, 'predict'):
+            logger.info(f"🔍 DEBUG: Model has 'predict' method: True")
+        else:
+            logger.error(f"❌ ERROR: RF-DETR model does not have 'predict' method!")
         
         # Load trained weights if available
         checkpoint_path = model_config.get("trained_model_path")
         if checkpoint_path and Path(checkpoint_path).exists():
-            logger.info(f"Loading RF-DETR weights from: {checkpoint_path}")
+            logger.info(f"🔍 DEBUG: Loading RF-DETR weights from: {checkpoint_path}")
             checkpoint = torch.load(checkpoint_path, map_location='cpu', weights_only=False)
+            logger.info(f"🔍 DEBUG: Checkpoint keys: {list(checkpoint.keys()) if isinstance(checkpoint, dict) else 'Not a dict'}")
             
             # Handle different checkpoint formats
             if hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):
                 if 'model_state_dict' in checkpoint:
                     model.model.load_state_dict(checkpoint['model_state_dict'])
+                    logger.info(f"🔍 DEBUG: Loaded model_state_dict from checkpoint")
                 elif 'model' in checkpoint:
                     model.model.load_state_dict(checkpoint['model'])
+                    logger.info(f"🔍 DEBUG: Loaded model from checkpoint")
                 else:
                     model.model.load_state_dict(checkpoint)
+                    logger.info(f"🔍 DEBUG: Loaded checkpoint directly")
+            else:
+                logger.warning(f"⚠️ WARNING: Could not load checkpoint - model structure unexpected")
         else:
-            logger.warning("No RF-DETR checkpoint found, using pre-trained weights")
+            logger.warning("⚠️ WARNING: No RF-DETR checkpoint found, using pre-trained weights")
         
         # Optimize model for inference to reduce latency warnings
         try:
             if hasattr(model, 'optimize_for_inference'):
                 model.optimize_for_inference()
-                logger.info("RF-DETR model optimized for inference")
+                logger.info("🔍 DEBUG: RF-DETR model optimized for inference")
         except Exception as opt_e:
-            logger.debug(f"Could not optimize RF-DETR model for inference: {opt_e}")
+            logger.debug(f"🔍 DEBUG: Could not optimize RF-DETR model for inference: {opt_e}")
         
         # Smart device placement: GPU for CUDA, CPU for MPS (Mac compatibility)
         target_device = self.device
+        logger.info(f"🔍 DEBUG: Original device: {self.device}")
         
         # Handle MPS compatibility issues on Mac
         if str(self.device) == 'mps':
             # MPS has known issues with RF-DETR operators
             target_device = torch.device('cpu')
-            logger.warning("RF-DETR moved to CPU due to MPS compatibility issues on Mac")
+            logger.warning("⚠️ WARNING: RF-DETR moved to CPU due to MPS compatibility issues on Mac")
             # Set fallback for MPS-specific operators
             import os
             os.environ['PYTORCH_ENABLE_MPS_FALLBACK'] = '1'
         elif torch.cuda.is_available() and 'cuda' in str(self.device):
             # Use GPU acceleration on PC/CUDA systems
             target_device = self.device  
-            logger.info(f"RF-DETR will use GPU acceleration: {target_device}")
+            logger.info(f"🔍 DEBUG: RF-DETR will use GPU acceleration: {target_device}")
         else:
             # Fallback to CPU
             target_device = torch.device('cpu')
-            logger.info("RF-DETR will use CPU (no CUDA available)")
+            logger.info("🔍 DEBUG: RF-DETR will use CPU (no CUDA available)")
+        
+        logger.info(f"🔍 DEBUG: Target device: {target_device}")
         
         # Move model to target device
         if hasattr(model, 'model') and hasattr(model.model, 'to'):
             model.model.to(target_device)
-            logger.info(f"RF-DETR model moved to: {target_device}")
+            logger.info(f"🔍 DEBUG: RF-DETR model.model moved to: {target_device}")
         elif hasattr(model, 'to'):
             model.to(target_device)
-            logger.info(f"RF-DETR model moved to: {target_device}")
+            logger.info(f"🔍 DEBUG: RF-DETR model moved to: {target_device}")
+        else:
+            logger.error(f"❌ ERROR: RF-DETR model has no 'to' method for device placement!")
+        
+        # Set model to eval mode - CRITICAL FIX
+        try:
+            if hasattr(model, 'eval'):
+                model.eval()
+                logger.info(f"🔧 FIXED: RF-DETR model set to eval mode")
+            elif hasattr(model, 'model') and hasattr(model.model, 'eval'):
+                model.model.eval()
+                logger.info(f"🔧 FIXED: RF-DETR model.model set to eval mode")
+            else:
+                logger.error(f"❌ ERROR: Could not set RF-DETR model to eval mode - this will cause inference issues!")
+                # Force eval mode if possible
+                if hasattr(model, 'train'):
+                    model.train(False)  # Equivalent to eval()
+                    logger.info(f"🔧 FIXED: Used train(False) as fallback for eval mode")
+        except Exception as eval_e:
+            logger.error(f"❌ ERROR: Critical error setting RF-DETR to eval mode: {eval_e}")
         
         # Log GPU memory usage if using CUDA
         if torch.cuda.is_available() and 'cuda' in str(target_device):
             memory_allocated = torch.cuda.memory_allocated(target_device) / 1024**3  # GB
             memory_reserved = torch.cuda.memory_reserved(target_device) / 1024**3   # GB
-            logger.info(f"GPU memory - Allocated: {memory_allocated:.2f}GB, Reserved: {memory_reserved:.2f}GB")
+            logger.info(f"🔍 DEBUG: GPU memory - Allocated: {memory_allocated:.2f}GB, Reserved: {memory_reserved:.2f}GB")
         
+        # Final model validation
+        logger.info(f"🔍 DEBUG: Final model type: {type(model)}")
+        logger.info(f"🔍 DEBUG: Model has predict method: {hasattr(model, 'predict')}")
+        if hasattr(model, 'model'):
+            logger.info(f"🔍 DEBUG: Inner model type: {type(model.model)}")
+            if hasattr(model.model, 'training'):
+                logger.info(f"🔍 DEBUG: Model training mode: {model.model.training}")
+        
+        logger.info("✅ DEBUG: RF-DETR model loading completed")
         return model
     
     def load_fasterrcnn_model(self, model_config: Dict[str, Any]) -> nn.Module:
@@ -333,59 +386,217 @@ class DetectionModelEvaluator:
         }
     
     def _run_rfdetr_inference(self, model: nn.Module, sample_idx: int) -> Dict[str, np.ndarray]:
-        """Run RF-DETR inference."""
+        """Run RF-DETR inference with comprehensive debugging."""
+        if sample_idx < 5:  # Enhanced logging for first few samples
+            logger.info(f"🔍 DEBUG: Starting RF-DETR inference for sample {sample_idx}")
+        
         try:
             # Get image path and load image
             image_path = self.dataset.get_image_path(sample_idx) if hasattr(self.dataset, 'get_image_path') else None
             
+            if sample_idx < 5:
+                logger.info(f"🔍 DEBUG: Image path for sample {sample_idx}: {image_path}")
+                logger.info(f"🔍 DEBUG: Path exists: {Path(image_path).exists() if image_path else False}")
+            
             if image_path and Path(image_path).exists():
                 original_image = cv2.imread(str(image_path))
+                if sample_idx < 5:
+                    logger.info(f"🔍 DEBUG: Image loaded: {original_image is not None}")
+                    if original_image is not None:
+                        logger.info(f"🔍 DEBUG: Image shape: {original_image.shape}")
+                
                 if original_image is not None:
                     image_pil = Image.fromarray(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
+                    if sample_idx < 5:
+                        logger.info(f"🔍 DEBUG: PIL image created: size={image_pil.size}, mode={image_pil.mode}")
+                    
+                    # Pre-prediction model validation
+                    if sample_idx < 3:
+                        logger.info(f"🔍 DEBUG: Model type before prediction: {type(model)}")
+                        logger.info(f"🔍 DEBUG: Model has predict method: {hasattr(model, 'predict')}")
+                        if hasattr(model, 'model'):
+                            logger.info(f"🔍 DEBUG: Inner model type: {type(model.model)}")
+                            logger.info(f"🔍 DEBUG: Inner model training mode: {getattr(model.model, 'training', 'unknown')}")
                     
                     # Try RF-DETR prediction with comprehensive error handling
                     try:
-                        results = model.predict(image_pil)
+                        if sample_idx < 3:
+                            logger.info(f"🔍 DEBUG: Calling model.predict() for sample {sample_idx}...")
+                        
+                        # FIXED: Add timeout and better error handling for model.predict()
+                        try:
+                            results = model.predict(image_pil)
+                        except AttributeError as attr_e:
+                            if sample_idx < 5:
+                                logger.error(f"❌ ERROR: model.predict() method not found: {attr_e}")
+                                logger.error(f"❌ ERROR: Available methods: {[m for m in dir(model) if not m.startswith('_') and callable(getattr(model, m))]}")
+                            # Try alternative method names
+                            if hasattr(model, 'inference') or hasattr(model, '__call__'):
+                                logger.info(f"🔧 ATTEMPTING: Using alternative inference method...")
+                                if hasattr(model, 'inference'):
+                                    results = model.inference(image_pil)
+                                else:
+                                    results = model(image_pil)
+                            else:
+                                raise attr_e
+                        except Exception as general_e:
+                            logger.error(f"❌ ERROR: General prediction failure: {general_e}")
+                            raise general_e
+                        
+                        if sample_idx < 5:
+                            logger.info(f"🔍 DEBUG: Raw results type: {type(results)}")
+                            logger.info(f"🔍 DEBUG: Results is None: {results is None}")
+                            if results is not None:
+                                logger.info(f"🔍 DEBUG: Results attributes: {[attr for attr in dir(results) if not attr.startswith('_')]}")
                         
                         # Debug: Log successful predictions for first few samples
-                        if sample_idx < 3 and results is not None:
-                            logger.info(f"RF-DETR prediction successful for sample {sample_idx}, result type: {type(results)}")
+                        if sample_idx < 5 and results is not None:
+                            logger.info(f"🔍 DEBUG: RF-DETR prediction successful for sample {sample_idx}, result type: {type(results)}")
                             if hasattr(results, 'boxes'):
-                                logger.info(f"  Boxes available: {results.boxes is not None}")
+                                logger.info(f"🔍 DEBUG: Results has boxes attribute: {results.boxes is not None}")
                                 if results.boxes is not None:
-                                    logger.info(f"  Number of detections: {len(results.boxes)}")
+                                    logger.info(f"🔍 DEBUG: Boxes type: {type(results.boxes)}")
+                                    logger.info(f"🔍 DEBUG: Boxes attributes: {[attr for attr in dir(results.boxes) if not attr.startswith('_')]}")
+                                    if hasattr(results.boxes, 'data'):
+                                        logger.info(f"🔍 DEBUG: Boxes data shape: {results.boxes.data.shape if results.boxes.data is not None else 'None'}")
+                                    logger.info(f"🔍 DEBUG: Number of detections: {len(results.boxes)}")
+                            
+                            # Check if it's a list
+                            if isinstance(results, list):
+                                logger.info(f"🔍 DEBUG: Results is list with length: {len(results)}")
+                                if len(results) > 0:
+                                    logger.info(f"🔍 DEBUG: First result type: {type(results[0])}")
+                                    if hasattr(results[0], 'boxes'):
+                                        logger.info(f"🔍 DEBUG: First result has boxes: {results[0].boxes is not None}")
                         
-                        # Extract predictions - handle different result formats
+                        # FIXED: Enhanced result extraction with comprehensive format handling
                         if results is not None:
-                            # Handle Ultralytics-style results
+                            boxes = np.array([]).reshape(0, 4)
+                            scores = np.array([])
+                            labels = np.array([])
+                            
+                            # Handle Ultralytics-style results (most common)
                             if hasattr(results, 'boxes') and results.boxes is not None:
-                                boxes = results.boxes.xyxy.cpu().numpy()
-                                scores = results.boxes.conf.cpu().numpy()
-                                labels = results.boxes.cls.cpu().numpy()
-                                
-                                # Debug: Log successful extraction
                                 if sample_idx < 3:
-                                    logger.info(f"  Extracted {len(boxes)} detections: boxes={boxes.shape}, scores={scores.shape}")
+                                    logger.info(f"🔧 PROCESSING: Ultralytics-style results")
+                                try:
+                                    # Handle tensor vs numpy conversion properly
+                                    if hasattr(results.boxes, 'xyxy'):
+                                        boxes_tensor = results.boxes.xyxy
+                                        if hasattr(boxes_tensor, 'cpu'):
+                                            boxes = boxes_tensor.cpu().numpy()
+                                        else:
+                                            boxes = np.array(boxes_tensor)
+                                    
+                                    if hasattr(results.boxes, 'conf'):
+                                        scores_tensor = results.boxes.conf
+                                        if hasattr(scores_tensor, 'cpu'):
+                                            scores = scores_tensor.cpu().numpy()
+                                        else:
+                                            scores = np.array(scores_tensor)
+                                    
+                                    if hasattr(results.boxes, 'cls'):
+                                        labels_tensor = results.boxes.cls
+                                        if hasattr(labels_tensor, 'cpu'):
+                                            labels = labels_tensor.cpu().numpy()
+                                        else:
+                                            labels = np.array(labels_tensor)
+                                    
+                                    if sample_idx < 5:
+                                        logger.info(f"✅ SUCCESS: Extracted {len(boxes)} detections: boxes={boxes.shape}, scores={scores.shape}, labels={labels.shape}")
+                                        if len(scores) > 0:
+                                            logger.info(f"🔍 DEBUG: Score range: {scores.min():.4f} - {scores.max():.4f}")
+                                            logger.info(f"🔍 DEBUG: Label range: {labels.min()} - {labels.max()}")
+                                except Exception as extract_e:
+                                    if sample_idx < 5:
+                                        logger.error(f"❌ ERROR: Failed to extract from Ultralytics results: {extract_e}")
+                                        logger.error(f"❌ ERROR: Boxes type: {type(results.boxes)}")
+                                        logger.error(f"❌ ERROR: Available attributes: {dir(results.boxes)}")
+                                        # Try alternative extraction methods
+                                        if hasattr(results.boxes, 'data'):
+                                            logger.info(f"🔧 ATTEMPTING: Alternative extraction via .data attribute")
+                                            try:
+                                                data = results.boxes.data
+                                                if data is not None and len(data) > 0:
+                                                    # Assume data format: [x1, y1, x2, y2, conf, cls]
+                                                    data_np = data.cpu().numpy() if hasattr(data, 'cpu') else np.array(data)
+                                                    if data_np.shape[1] >= 6:  # At least 6 columns
+                                                        boxes = data_np[:, :4]  # First 4 columns are bbox
+                                                        scores = data_np[:, 4]  # 5th column is confidence
+                                                        labels = data_np[:, 5]  # 6th column is class
+                                                        logger.info(f"✅ SUCCESS: Alternative extraction yielded {len(boxes)} detections")
+                                            except Exception as alt_e:
+                                                logger.error(f"❌ ERROR: Alternative extraction failed: {alt_e}")
                                     
                             # Handle list of results
                             elif isinstance(results, list) and len(results) > 0:
+                                if sample_idx < 3:
+                                    logger.info(f"🔧 PROCESSING: List-style results")
                                 result = results[0]
                                 if hasattr(result, 'boxes') and result.boxes is not None:
-                                    boxes = result.boxes.xyxy.cpu().numpy()
-                                    scores = result.boxes.conf.cpu().numpy()
-                                    labels = result.boxes.cls.cpu().numpy()
-                                else:
-                                    boxes = np.array([]).reshape(0, 4)
-                                    scores = np.array([])
-                                    labels = np.array([])
+                                    # Apply same extraction logic as above
+                                    try:
+                                        if hasattr(result.boxes, 'xyxy'):
+                                            boxes = result.boxes.xyxy.cpu().numpy() if hasattr(result.boxes.xyxy, 'cpu') else np.array(result.boxes.xyxy)
+                                        if hasattr(result.boxes, 'conf'):
+                                            scores = result.boxes.conf.cpu().numpy() if hasattr(result.boxes.conf, 'cpu') else np.array(result.boxes.conf)
+                                        if hasattr(result.boxes, 'cls'):
+                                            labels = result.boxes.cls.cpu().numpy() if hasattr(result.boxes.cls, 'cpu') else np.array(result.boxes.cls)
+                                        if sample_idx < 5:
+                                            logger.info(f"✅ SUCCESS: Extracted from list result: {len(boxes)} detections")
+                                    except Exception as list_extract_e:
+                                        if sample_idx < 5:
+                                            logger.error(f"❌ ERROR: Failed to extract from list result: {list_extract_e}")
+                            
+                            # Handle raw tensor/array results
+                            elif hasattr(results, 'detections') or isinstance(results, (list, tuple, torch.Tensor, np.ndarray)):
+                                if sample_idx < 3:
+                                    logger.info(f"🔧 PROCESSING: Raw tensor/array results")
+                                # Try to parse raw detection format
+                                try:
+                                    if hasattr(results, 'detections'):
+                                        detections = results.detections
+                                    else:
+                                        detections = results
+                                    
+                                    # Convert to numpy if needed
+                                    if hasattr(detections, 'cpu'):
+                                        detections = detections.cpu().numpy()
+                                    elif not isinstance(detections, np.ndarray):
+                                        detections = np.array(detections)
+                                    
+                                    if len(detections) > 0 and detections.shape[1] >= 6:
+                                        boxes = detections[:, :4]
+                                        scores = detections[:, 4]
+                                        labels = detections[:, 5]
+                                        if sample_idx < 5:
+                                            logger.info(f"✅ SUCCESS: Extracted from raw format: {len(boxes)} detections")
+                                except Exception as raw_e:
+                                    if sample_idx < 5:
+                                        logger.error(f"❌ ERROR: Failed to parse raw results: {raw_e}")
+                            
                             else:
-                                boxes = np.array([]).reshape(0, 4)
-                                scores = np.array([])
-                                labels = np.array([])
+                                # Log unrecognized format with full debugging
+                                if sample_idx < 10:
+                                    logger.warning(f"⚠️ WARNING: RF-DETR results format not recognized for sample {sample_idx}")
+                                    logger.warning(f"⚠️ WARNING: Results type: {type(results)}")
+                                    logger.warning(f"⚠️ WARNING: Results dir: {[attr for attr in dir(results) if not attr.startswith('_')]}")
+                                    if hasattr(results, '__dict__'):
+                                        logger.warning(f"⚠️ WARNING: Results dict keys: {list(results.__dict__.keys())}")
+                                    # Try to extract anything that looks like detections
+                                    for attr_name in ['pred', 'prediction', 'output', 'result', 'detection']:
+                                        if hasattr(results, attr_name):
+                                            logger.info(f"🔧 FOUND: Potential detection attribute '{attr_name}'")
+                            
+                            # Apply confidence threshold filtering
+                            if len(scores) > 0:
+                                valid_mask = scores >= self.confidence_threshold
+                                boxes = boxes[valid_mask] if len(boxes) > 0 else boxes
+                                scores = scores[valid_mask]
+                                labels = labels[valid_mask] if len(labels) > 0 else labels
                                 
-                                # Debug: Log when no valid predictions
                                 if sample_idx < 5:
-                                    logger.warning(f"RF-DETR results format not recognized for sample {sample_idx}: {type(results)}")
+                                    logger.info(f"🔧 FILTERED: {np.sum(valid_mask)}/{len(valid_mask)} detections above confidence threshold {self.confidence_threshold}")
                             
                             return {
                                 'boxes': boxes,
@@ -394,28 +605,34 @@ class DetectionModelEvaluator:
                             }
                         else:
                             # Log when results is None for debugging
-                            if sample_idx < 5:  # Only log first few for debugging
-                                logger.warning(f"RF-DETR returned None results for sample {sample_idx}")
+                            if sample_idx < 10:  # More extensive logging for None results
+                                logger.error(f"❌ ERROR: RF-DETR returned None results for sample {sample_idx}")
+                                logger.error(f"❌ ERROR: This indicates model.predict() failed silently")
                     
                     except Exception as pred_e:
-                        # Use warning instead of debug for critical failures
+                        # Use error level for critical failures with full traceback
                         if sample_idx < 10:  # Log first 10 errors to understand pattern
-                            logger.error(f"RF-DETR prediction failed for sample {sample_idx}: {type(pred_e).__name__}: {pred_e}")
+                            logger.error(f"❌ ERROR: RF-DETR prediction failed for sample {sample_idx}: {type(pred_e).__name__}: {pred_e}")
+                            logger.error(f"❌ ERROR: Full traceback:", exc_info=True)
                         elif sample_idx == 10:
-                            logger.error("RF-DETR prediction failures continue... suppressing further error logs")
+                            logger.error("❌ ERROR: RF-DETR prediction failures continue... suppressing further error logs")
                 else:
                     if sample_idx < 5:  # Only log first few for debugging
-                        logger.warning(f"Could not load image for sample {sample_idx}: {image_path}")
+                        logger.error(f"❌ ERROR: Could not load image for sample {sample_idx}: {image_path}")
             else:
                 if sample_idx < 5:  # Only log first few for debugging
-                    logger.warning(f"Image path not found for sample {sample_idx}: {image_path}")
+                    logger.error(f"❌ ERROR: Image path not found for sample {sample_idx}: {image_path}")
                         
         except Exception as e:
-            # Use warning instead of debug for setup failures
-            if sample_idx < 5:  # Only log first few to avoid spam
-                logger.warning(f"RF-DETR inference setup failed for sample {sample_idx}: {e}")
+            # Use error level for setup failures
+            if sample_idx < 10:  # Log more setup failures to understand the issue
+                logger.error(f"❌ ERROR: RF-DETR inference setup failed for sample {sample_idx}: {e}")
+                logger.error(f"❌ ERROR: Setup failure traceback:", exc_info=True)
         
         # Return empty prediction if failed
+        if sample_idx < 5:
+            logger.warning(f"⚠️ WARNING: Returning empty prediction for sample {sample_idx}")
+        
         return {
             'boxes': np.array([]).reshape(0, 4),
             'scores': np.array([]),

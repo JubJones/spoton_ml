@@ -100,19 +100,75 @@ def get_rfdetr_model(config: Dict[str, Any]):
     checkpoint_path = config.get("local_model_path")
     has_trained_checkpoint = checkpoint_path and Path(checkpoint_path).exists()
     
-    if has_trained_checkpoint:
-        # Use custom number of classes for trained models
-        if "num_classes" in model_config:
-            model_kwargs["num_classes"] = model_config["num_classes"]
-        logger.info(f"Loading RF-DETR {model_size} model with custom classes: {model_kwargs}")
+    # FIXED: Always use the configured num_classes, regardless of checkpoint availability
+    # This ensures model architecture matches expected detection classes
+    if "num_classes" in model_config:
+        model_kwargs["num_classes"] = model_config["num_classes"]
+        logger.info(f"Loading RF-DETR {model_size} model with configured classes: {model_kwargs['num_classes']}")
     else:
-        # Use default COCO classes (90) for pre-trained models
-        # This avoids the class mismatch warning
-        model_kwargs["num_classes"] = 90  # COCO dataset classes
-        logger.info(f"Loading pre-trained RF-DETR {model_size} model with COCO classes (90)")
+        # Fallback to COCO classes only if not specified
+        model_kwargs["num_classes"] = 90
+        logger.info(f"Loading RF-DETR {model_size} model with default COCO classes (90)")
+    
+    # Log the decision for debugging
+    logger.info(f"🔧 FIXED: RF-DETR will use {model_kwargs['num_classes']} classes (was using 90 for pre-trained, causing mismatch)")
     
     # Create model instance
     model = model_class(**model_kwargs)
+    
+    # CRITICAL FIX: Force the model to respect our num_classes after initialization
+    # RF-DETR library overrides num_classes when loading pretrained weights
+    if "num_classes" in model_config and model_config["num_classes"] != 90:
+        target_classes = model_config["num_classes"]
+        logger.info(f"🔧 CRITICAL FIX: Forcing RF-DETR to use {target_classes} classes after initialization")
+        
+        # Try multiple methods to override the class count
+        # RF-DETR has nested structure: model.model.model contains the actual DETR
+        try:
+            # Try to access the nested model structure
+            actual_model = None
+            if hasattr(model, 'model'):
+                logger.info(f"🔍 Found model.model: {type(model.model)}")
+                if hasattr(model.model, 'model'):
+                    actual_model = model.model.model
+                    logger.info(f"🔍 Found nested model.model.model: {type(actual_model)}")
+                else:
+                    actual_model = model.model
+                    logger.info(f"🔍 Using model.model as actual model")
+            
+            if actual_model is not None:
+                # Check for class_embed (DETR classification head)
+                if hasattr(actual_model, 'class_embed'):
+                    import torch.nn as nn
+                    old_out_features = actual_model.class_embed.out_features
+                    logger.info(f"🔍 Found class_embed with {old_out_features} classes")
+                    
+                    if old_out_features != target_classes:
+                        # Reinitialize classification head with correct number of classes
+                        in_features = actual_model.class_embed.in_features
+                        actual_model.class_embed = nn.Linear(in_features, target_classes)
+                        logger.info(f"✅ Reinitialized classification head: {old_out_features} -> {target_classes} classes")
+                    else:
+                        logger.info(f"✅ Classification head already has correct {target_classes} classes")
+                        
+                # Also check for num_classes attribute
+                if hasattr(actual_model, 'num_classes'):
+                    original_classes = actual_model.num_classes
+                    actual_model.num_classes = target_classes
+                    logger.info(f"✅ Updated num_classes: {original_classes} -> {target_classes}")
+                    
+                # Alternative: check parent model num_classes
+                if hasattr(model.model, 'num_classes'):
+                    original_classes = model.model.num_classes  
+                    model.model.num_classes = target_classes
+                    logger.info(f"✅ Updated parent num_classes: {original_classes} -> {target_classes}")
+                    
+            else:
+                logger.error(f"❌ Could not find actual model in nested structure")
+                
+        except Exception as fix_e:
+            logger.error(f"❌ Failed to force num_classes fix: {fix_e}")
+            logger.error(f"❌ RF-DETR will use default 90 classes - expect zero metrics!")
     
     return model
 

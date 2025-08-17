@@ -1,0 +1,47 @@
+# Debug Detection Model Comparison Configuration
+# For testing RF-DETR zero metrics fix
+
+# --- Model Configurations ---
+models:
+  rfdetr:
+    type: "rfdetr"
+    size: "base"
+    num_classes: 2  # FIXED: Always use 2 classes for person detection
+    trained_model_path: "checkpoints/rfdetr/nonexistent.pth"  # Will fallback to pre-trained
+    
+  fasterrcnn:
+    type: "fasterrcnn"
+    backbone_weights: "FasterRCNN_ResNet50_FPN_Weights.DEFAULT"
+    num_classes: 2
+    trainable_backbone_layers: 3
+    trained_model_path: "checkpoints/fasterrcnn/nonexistent.pth"  # Will fallback to pre-trained
+
+# --- MLflow Configuration ---
+mlflow:
+  experiment_name: "DEBUG - Detection Model Comparison Fix"
+
+# --- Environment Configuration ---
+environment:
+  device: "cpu"  # Force CPU for consistent testing
+  seed: 42
+
+# --- Data Configuration ---
+data:
+  # Use current directory as base path for minimal testing
+  base_path: "."
+  
+  # Minimal scene configuration for testing
+  scenes_to_include:
+    - scene_id: "test"
+      camera_ids: ["c01"]
+  
+  use_data_subset: true
+  data_subset_fraction: 0.1  # Use small subset for quick testing
+  val_split_ratio: 0.2
+  num_workers: 1
+
+# --- Comparison Configuration ---
+comparison:
+  output_dir: "outputs/debug_detection_model_comparison"
+  confidence_threshold: 0.3  # Lower threshold for testing
+  iou_threshold: 0.5

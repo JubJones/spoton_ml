@@ -7,7 +7,7 @@ models:
     type: "rfdetr"
     size: "base"
     num_classes: 2
-    trained_model_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/spoton_ml/checkpoints/rfdetr/checkpoint_best_total.pth"
+    trained_model_path: "checkpoints/rfdetr/checkpoint_best_total.pth"  # FIXED: Use relative path
     
   fasterrcnn:
     type: "fasterrcnn"
@@ -28,7 +28,7 @@ environment:
 # --- Data Configuration ---
 data:
   # Update base_path to point to your MTMMC dataset
-  base_path: "D:/MTMMC"
+  base_path: "/Users/ksetdhavanic/Documents/PS/spoton_ml/data/MTMMC"  # FIXED: Use Mac-compatible path
   
   # Include all available scenes for comprehensive comparison
   scenes_to_include:
