@@ -95,10 +95,21 @@ def get_rfdetr_model(config: Dict[str, Any]):
     
     # Get model configuration parameters
     model_kwargs = {}
-    if "num_classes" in model_config:
-        model_kwargs["num_classes"] = model_config["num_classes"]
     
-    logger.info(f"Loading RF-DETR {model_size} model with config: {model_kwargs}")
+    # Handle num_classes intelligently based on whether we have a checkpoint
+    checkpoint_path = config.get("local_model_path")
+    has_trained_checkpoint = checkpoint_path and Path(checkpoint_path).exists()
+    
+    if has_trained_checkpoint:
+        # Use custom number of classes for trained models
+        if "num_classes" in model_config:
+            model_kwargs["num_classes"] = model_config["num_classes"]
+        logger.info(f"Loading RF-DETR {model_size} model with custom classes: {model_kwargs}")
+    else:
+        # Use default COCO classes (90) for pre-trained models
+        # This avoids the class mismatch warning
+        model_kwargs["num_classes"] = 90  # COCO dataset classes
+        logger.info(f"Loading pre-trained RF-DETR {model_size} model with COCO classes (90)")
     
     # Create model instance
     model = model_class(**model_kwargs)

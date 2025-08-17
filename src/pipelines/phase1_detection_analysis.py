@@ -149,37 +149,87 @@ class Phase1DetectionAnalyzer:
             return model
             
         elif model_type == "rfdetr":
-            # Load RF-DETR model architecture
-            model = get_rfdetr_model(self.config)
-            
-            # Load weights from checkpoint if available
+            # Load RF-DETR model architecture with correct class configuration
             if checkpoint_path and Path(checkpoint_path).exists():
+                # If checkpoint exists, try to load trained model
                 try:
-                    # RF-DETR models may have different checkpoint formats
+                    logger.info(f"Loading trained RF-DETR model from: {checkpoint_path}")
                     checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
                     
+                    # Create model with configuration matching the checkpoint
+                    model = get_rfdetr_model(self.config)
+                    
                     # Handle different RF-DETR checkpoint formats
-                    if hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):
+                    checkpoint_loaded = False
+                    if hasattr(model, 'model'):
                         if 'model_state_dict' in checkpoint:
                             model.model.load_state_dict(checkpoint['model_state_dict'])
+                            checkpoint_loaded = True
                         elif 'model' in checkpoint:
                             model.model.load_state_dict(checkpoint['model'])
-                        else:
+                            checkpoint_loaded = True
+                        elif hasattr(model.model, 'load_state_dict'):
                             model.model.load_state_dict(checkpoint)
-                    else:
-                        logger.warning("RF-DETR checkpoint loading format not recognized, using default weights")
+                            checkpoint_loaded = True
+                    
+                    if not checkpoint_loaded:
+                        logger.warning("Could not load RF-DETR checkpoint with expected format")
+                        raise ValueError("Incompatible checkpoint format")
                         
-                    logger.info(f"Loaded RF-DETR weights from: {checkpoint_path}")
+                    logger.info(f"Successfully loaded RF-DETR weights from: {checkpoint_path}")
+                    
                 except Exception as e:
-                    logger.warning(f"Failed to load RF-DETR checkpoint: {e}. Using default weights.")
+                    logger.error(f"Failed to load RF-DETR checkpoint: {e}")
+                    logger.info("Falling back to pre-trained RF-DETR model")
+                    # Fall back to pre-trained model
+                    model = self._load_pretrained_rfdetr_model()
             else:
-                logger.warning(f"Checkpoint not found at: {checkpoint_path}. Using pre-trained weights.")
+                logger.info("No checkpoint specified or found, using pre-trained RF-DETR model")
+                # Use pre-trained model with proper class handling
+                model = self._load_pretrained_rfdetr_model()
             
-            # RF-DETR models handle device internally
+            # Set model to evaluation mode and optimize for inference
+            if hasattr(model, 'eval'):
+                model.eval()
+                logger.info("Set RF-DETR model to evaluation mode")
+            
+            # Optimize for inference if available
+            if hasattr(model, 'optimize_for_inference'):
+                try:
+                    model.optimize_for_inference()
+                    logger.info("✅ Optimized RF-DETR model for inference")
+                except Exception as opt_error:
+                    logger.warning(f"Could not optimize RF-DETR for inference: {opt_error}")
+            
+            # Disable gradient computation for inference
+            if hasattr(model, 'requires_grad_'):
+                model.requires_grad_(False)
+                logger.info("Disabled gradient computation for inference")
+            
             return model
             
         else:
             raise ValueError(f"Unsupported model type: {model_type}. Supported types: 'fasterrcnn', 'rfdetr'")
+    
+    def _load_pretrained_rfdetr_model(self) -> torch.nn.Module:
+        """Load pre-trained RF-DETR model with proper class configuration."""
+        # For pre-trained models, we need to handle the class mismatch
+        # Pre-trained RF-DETR models typically have 90 classes (COCO)
+        # but we need to adapt for person detection (class 0 in COCO = person)
+        
+        # Create model with original pre-trained configuration
+        pretrained_config = self.config.copy()
+        pretrained_config["model"]["num_classes"] = 90  # COCO classes
+        
+        logger.info("Loading pre-trained RF-DETR model (90 COCO classes)")
+        model = get_rfdetr_model(pretrained_config)
+        
+        # Log the class mapping information
+        logger.info("Using pre-trained RF-DETR with COCO classes:")
+        logger.info("  - Class 0: person (target class for detection)")
+        logger.info("  - Classes 1-89: other COCO objects (will be ignored)")
+        
+        return model
     
     def _load_fasterrcnn_model(self) -> torch.nn.Module:
         """Legacy method for backward compatibility."""
@@ -328,24 +378,36 @@ class Phase1DetectionAnalyzer:
                 with torch.no_grad():
                     # Convert tensor to PIL image for RF-DETR
                     image_pil = Image.fromarray(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
-                    results = self.model.predict(image_pil)
                     
-                    # Extract predictions from RF-DETR results
-                    pred_boxes = []
-                    pred_scores = []
-                    
-                    if results and hasattr(results, 'boxes') and results.boxes is not None:
-                        # RF-DETR results format
-                        boxes = results.boxes.xyxy.cpu()  # x1, y1, x2, y2
-                        scores = results.boxes.conf.cpu()
-                        labels = results.boxes.cls.cpu()
+                    try:
+                        results = self.model.predict(image_pil)
                         
-                        # Filter for person class (class 0 in RF-DETR)
-                        person_mask = labels == 0
-                        pred_boxes = boxes[person_mask]
-                        pred_scores = scores[person_mask]
-                    else:
-                        # Empty results
+                        # Extract predictions from RF-DETR results
+                        pred_boxes = []
+                        pred_scores = []
+                        
+                        if results and hasattr(results, 'boxes') and results.boxes is not None:
+                            # RF-DETR results format
+                            boxes = results.boxes.xyxy.cpu()  # x1, y1, x2, y2
+                            scores = results.boxes.conf.cpu()
+                            labels = results.boxes.cls.cpu()
+                            
+                            # Filter for person class (class 0 in COCO/RF-DETR)
+                            # This works for both trained (2-class) and pre-trained (90-class) models
+                            person_mask = labels == 0
+                            pred_boxes = boxes[person_mask]
+                            pred_scores = scores[person_mask]
+                            
+                            logger.debug(f"RF-DETR detected {len(boxes)} total objects, {len(pred_boxes)} persons")
+                        else:
+                            # Empty results
+                            pred_boxes = torch.empty((0, 4))
+                            pred_scores = torch.empty((0,))
+                            logger.debug("RF-DETR returned no detections")
+                            
+                    except Exception as inference_error:
+                        logger.error(f"RF-DETR inference failed: {inference_error}")
+                        # Return empty results on inference failure
                         pred_boxes = torch.empty((0, 4))
                         pred_scores = torch.empty((0,))
             

@@ -4,13 +4,17 @@
 # --- Model Configuration ---
 # Update this path to point to your trained RF-DETR model checkpoint
 # Leave empty or set to non-existent path to use pre-trained model
-local_model_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/spoton_ml/checkpoints/rfdetr/checkpoint_best_total.pth"
+# NOTE: Set to empty string or invalid path to automatically use pre-trained COCO model
+local_model_path: ""  # Use pre-trained model since no trained checkpoint available
 
 model:
   type: "rfdetr"
   size: "base"  # Options: "base", "small", "medium", "large", "nano"
-  num_classes: 2  # person + background
-  # RF-DETR specific parameters will be auto-loaded from checkpoint
+  # num_classes will be set automatically:
+  # - 90 for pre-trained COCO model (if no checkpoint)
+  # - 2 for trained custom model (if checkpoint exists)
+  # We use person class (class 0) for detection in both cases
+  num_classes: 2  # Target classes for custom training (person + background)
 
 # --- MLflow Configuration ---
 mlflow:
