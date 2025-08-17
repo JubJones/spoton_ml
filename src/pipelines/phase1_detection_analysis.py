@@ -159,22 +159,80 @@ class Phase1DetectionAnalyzer:
                     # Create model with configuration matching the checkpoint
                     model = get_rfdetr_model(self.config)
                     
-                    # Handle different RF-DETR checkpoint formats
+                    # Handle different RF-DETR checkpoint formats with detailed debugging
                     checkpoint_loaded = False
-                    if hasattr(model, 'model'):
-                        if 'model_state_dict' in checkpoint:
-                            model.model.load_state_dict(checkpoint['model_state_dict'])
-                            checkpoint_loaded = True
-                        elif 'model' in checkpoint:
-                            model.model.load_state_dict(checkpoint['model'])
-                            checkpoint_loaded = True
-                        elif hasattr(model.model, 'load_state_dict'):
-                            model.model.load_state_dict(checkpoint)
-                            checkpoint_loaded = True
+                    
+                    # Debug: Log model and checkpoint structure
+                    logger.info(f"RF-DETR model type: {type(model).__name__}")
+                    model_attrs = [attr for attr in dir(model) if not attr.startswith('_')]
+                    logger.info(f"Model attributes: {model_attrs[:10]}...")  # Show first 10
+                    
+                    if isinstance(checkpoint, dict):
+                        logger.info(f"Checkpoint keys: {list(checkpoint.keys())}")
+                    else:
+                        logger.info(f"Checkpoint type: {type(checkpoint)}")
+                    
+                    # RF-DETR Checkpoint Loading: Based on actual RF-DETR source code analysis
+                    # RF-DETR saves: {"model": self.model.model.state_dict(), "args": self.model.args}
+                    # RF-DETR loads: self.model.load_state_dict(checkpoint['model'], strict=False)
+                    
+                    # Strategy 1: RF-DETR standard format - model.model.load_state_dict(checkpoint['model'])
+                    if hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):
+                        try:
+                            if 'model' in checkpoint and isinstance(checkpoint['model'], dict):
+                                # Standard RF-DETR checkpoint format
+                                model.model.load_state_dict(checkpoint['model'], strict=False)
+                                checkpoint_loaded = True
+                                logger.info("SUCCESS: RF-DETR standard format - model.model.load_state_dict(checkpoint['model'])")
+                                
+                                # Also load args if available (for class names etc.)
+                                if 'args' in checkpoint and hasattr(model, 'args'):
+                                    # Extract useful attributes from saved args
+                                    saved_args = checkpoint['args']
+                                    if hasattr(saved_args, 'class_names'):
+                                        model.args.class_names = saved_args.class_names
+                                        logger.info(f"Loaded class names: {saved_args.class_names}")
+                                    if hasattr(saved_args, 'num_classes'):
+                                        logger.info(f"Checkpoint trained with {saved_args.num_classes} classes")
+                            else:
+                                logger.warning("Checkpoint missing 'model' key or not a dict")
+                        except Exception as e:
+                            logger.warning(f"RF-DETR standard loading failed: {e}")
+                    
+                    # Strategy 2: Try legacy formats if standard fails
+                    if not checkpoint_loaded and hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):
+                        try:
+                            # Try other common checkpoint formats
+                            if 'model_state_dict' in checkpoint:
+                                model.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
+                                checkpoint_loaded = True
+                                logger.info("SUCCESS: Legacy format - model.model.load_state_dict(checkpoint['model_state_dict'])")
+                            elif isinstance(checkpoint, dict) and 'model' not in checkpoint:
+                                # Direct state dict (no wrapper)
+                                model.model.load_state_dict(checkpoint, strict=False)
+                                checkpoint_loaded = True
+                                logger.info("SUCCESS: Direct state dict - model.model.load_state_dict(checkpoint)")
+                        except Exception as e:
+                            logger.warning(f"Legacy format loading failed: {e}")
+                    
+                    # Strategy 3: Wrapper model load_state_dict (if Model class has it)
+                    if not checkpoint_loaded and hasattr(model, 'load_state_dict'):
+                        try:
+                            if 'model' in checkpoint:
+                                model.load_state_dict(checkpoint['model'], strict=False)
+                                checkpoint_loaded = True
+                                logger.info("SUCCESS: Wrapper model - model.load_state_dict(checkpoint['model'])")
+                        except Exception as e:
+                            logger.warning(f"Wrapper model loading failed: {e}")
                     
                     if not checkpoint_loaded:
-                        logger.warning("Could not load RF-DETR checkpoint with expected format")
-                        raise ValueError("Incompatible checkpoint format")
+                        logger.error("Failed to load RF-DETR checkpoint with any known method")
+                        logger.error("This indicates either:")
+                        logger.error("  1. Checkpoint is corrupted or incomplete")
+                        logger.error("  2. Checkpoint format is not compatible with current RF-DETR version")
+                        logger.error("  3. Model architecture mismatch")
+                        logger.info("Falling back to pre-trained model...")
+                        raise ValueError("RF-DETR checkpoint loading failed - using pre-trained model fallback")
                         
                     logger.info(f"Successfully loaded RF-DETR weights from: {checkpoint_path}")
                     
@@ -197,7 +255,7 @@ class Phase1DetectionAnalyzer:
             if hasattr(model, 'optimize_for_inference'):
                 try:
                     model.optimize_for_inference()
-                    logger.info("[✓] Optimized RF-DETR model for inference")
+                    logger.info("[OK] Optimized RF-DETR model for inference")
                 except Exception as opt_error:
                     logger.warning(f"Could not optimize RF-DETR for inference: {opt_error}")
             
