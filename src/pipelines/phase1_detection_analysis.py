@@ -191,10 +191,9 @@ class Phase1DetectionAnalyzer:
                     model.eval()
                     logger.info("Set RF-DETR model to evaluation mode")
                 
-                # Move to device
-                if hasattr(model, 'to'):
-                    model = model.to(self.device)
-                    logger.info(f"Moved RF-DETR model to device: {self.device}")
+                # FIXED: Comprehensive RF-DETR device synchronization
+                # RF-DETR has nested model structure that needs careful device handling
+                model = self._ensure_rfdetr_device_sync(model)
                 
                 return model
                 
@@ -204,6 +203,120 @@ class Phase1DetectionAnalyzer:
             
         else:
             raise ValueError(f"Unsupported model type: {model_type}. Supported types: 'fasterrcnn', 'rfdetr'")
+    
+    def _ensure_rfdetr_device_sync(self, model) -> torch.nn.Module:
+        """
+        Ensure RF-DETR model and all its nested components are on the correct device.
+        
+        RF-DETR has a complex nested structure:
+        - model (RFDETR wrapper)
+        - model.model (Model class) 
+        - model.model.model (actual DETR network)
+        
+        This method ensures ALL components are synchronized to the target device.
+        """
+        logger.info(f"🔧 Synchronizing RF-DETR model to device: {self.device}")
+        
+        try:
+            # Strategy 1: Move wrapper model (should cascade to nested models)
+            if hasattr(model, 'to'):
+                model = model.to(self.device)
+                logger.info(f"✅ Moved RF-DETR wrapper to {self.device}")
+            
+            # Strategy 2: Explicitly move nested model.model if it exists
+            if hasattr(model, 'model') and hasattr(model.model, 'to'):
+                model.model = model.model.to(self.device)
+                logger.info(f"✅ Moved RF-DETR model.model to {self.device}")
+                
+                # Strategy 3: Move the actual DETR network if nested deeper
+                if hasattr(model.model, 'model') and hasattr(model.model.model, 'to'):
+                    model.model.model = model.model.model.to(self.device)
+                    logger.info(f"✅ Moved RF-DETR model.model.model to {self.device}")
+            
+            # Strategy 4: Force device for common problematic components
+            self._force_rfdetr_component_devices(model)
+            
+            # Strategy 5: Verify device synchronization
+            self._verify_rfdetr_device_sync(model)
+            
+            logger.info(f"✅ RF-DETR device synchronization completed successfully")
+            return model
+            
+        except Exception as device_error:
+            logger.error(f"❌ RF-DETR device synchronization failed: {device_error}")
+            logger.warning("Attempting fallback device synchronization...")
+            
+            # Fallback: Try to force everything to CPU to avoid device conflicts
+            try:
+                if self.device.type == 'cuda':
+                    logger.warning("⚠️  CUDA device sync failed, forcing CPU mode for stability")
+                    self.device = torch.device('cpu')
+                    model = model.to(self.device)
+                    logger.info("✅ Fallback: RF-DETR model moved to CPU")
+                    
+                return model
+                
+            except Exception as fallback_error:
+                logger.error(f"❌ Even CPU fallback failed: {fallback_error}")
+                raise ValueError(f"RF-DETR device synchronization completely failed: {device_error}")
+    
+    def _force_rfdetr_component_devices(self, model):
+        """Force specific RF-DETR components to the target device."""
+        try:
+            # Access the actual DETR model components that commonly cause device issues
+            if hasattr(model, 'model') and hasattr(model.model, 'model'):
+                detr_model = model.model.model
+                
+                # Force classification head to correct device (common source of device mismatch)
+                if hasattr(detr_model, 'class_embed'):
+                    detr_model.class_embed = detr_model.class_embed.to(self.device)
+                    logger.debug(f"  Moved class_embed to {self.device}")
+                
+                # Force bbox regression head to correct device  
+                if hasattr(detr_model, 'bbox_embed'):
+                    detr_model.bbox_embed = detr_model.bbox_embed.to(self.device)
+                    logger.debug(f"  Moved bbox_embed to {self.device}")
+                
+                # Force transformer components to correct device
+                if hasattr(detr_model, 'transformer'):
+                    detr_model.transformer = detr_model.transformer.to(self.device)
+                    logger.debug(f"  Moved transformer to {self.device}")
+                
+                # Force backbone to correct device
+                if hasattr(detr_model, 'backbone'):
+                    detr_model.backbone = detr_model.backbone.to(self.device)
+                    logger.debug(f"  Moved backbone to {self.device}")
+                    
+        except Exception as component_error:
+            logger.warning(f"⚠️  Component-level device sync failed: {component_error}")
+    
+    def _verify_rfdetr_device_sync(self, model):
+        """Verify that RF-DETR model components are on the expected device."""
+        try:
+            device_mismatches = []
+            
+            # Check wrapper model device
+            if hasattr(model, 'parameters'):
+                for name, param in model.named_parameters():
+                    if param.device != self.device:
+                        device_mismatches.append(f"{name}: {param.device} != {self.device}")
+                        
+            if device_mismatches:
+                logger.warning(f"⚠️  Device mismatches detected:")
+                for mismatch in device_mismatches[:5]:  # Show first 5 mismatches
+                    logger.warning(f"    {mismatch}")
+                if len(device_mismatches) > 5:
+                    logger.warning(f"    ... and {len(device_mismatches) - 5} more")
+                    
+                # Attempt to fix the mismatches
+                logger.info("Attempting to fix device mismatches...")
+                model = model.to(self.device)
+                logger.info("✅ Applied additional device synchronization")
+            else:
+                logger.info(f"✅ All RF-DETR components verified on {self.device}")
+                
+        except Exception as verify_error:
+            logger.warning(f"⚠️  Device verification failed: {verify_error}")
     
     def _load_pretrained_rfdetr_model(self) -> torch.nn.Module:
         """Load pre-trained RF-DETR model with proper class configuration."""

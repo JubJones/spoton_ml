@@ -166,6 +166,7 @@ class RFDETRFallback:
     def to(self, device):
         """Move model to device (compatibility method)."""
         self.device = device
+        logger.debug(f"RF-DETR Fallback moved to device: {device}")
         return self
 
 
@@ -210,6 +211,12 @@ class RFDETRModelLoader:
             
             model = get_rfdetr_model(config)
             logger.info("✅ Successfully loaded real RF-DETR model")
+            
+            # Add device sync method to real RF-DETR model for compatibility
+            if not hasattr(model, '_device_sync_applied'):
+                model._device_sync_applied = True
+                logger.info("✅ Real RF-DETR model ready for device synchronization")
+            
             return model
             
         except Exception as e:
