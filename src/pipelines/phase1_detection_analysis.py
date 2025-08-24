@@ -27,10 +27,12 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from tqdm import tqdm
 from PIL import Image, ImageDraw, ImageFont
+from torchmetrics.detection import MeanAveragePrecision
 
 from src.components.data.training_dataset import MTMMCDetectionDataset
 from src.components.training.runner import get_transform, get_fasterrcnn_model
 from src.components.training.rfdetr_runner import get_rfdetr_model
+from src.components.detection.rfdetr_fallback import RFDETRModelLoader
 
 logger = logging.getLogger(__name__)
 
@@ -103,6 +105,15 @@ class Phase1DetectionAnalyzer:
         self.scene_performances: List[ScenePerformance] = []
         self.collected_person_ids: Set[Tuple[str, str, int]] = set()  # (scene, camera, person_id)
         
+        # Initialize mAP metric calculator
+        self.map_metric = MeanAveragePrecision(
+            box_format='xyxy',
+            iou_type='bbox',
+            iou_thresholds=None,  # Use default [0.5:0.95] range
+            compute_on_cpu=True,  # Ensure compatibility across devices
+            class_metrics=True
+        )
+        
         # Load dataset and model
         self.dataset = self._load_dataset()
         self.model = self._load_fasterrcnn_model()
@@ -149,122 +160,47 @@ class Phase1DetectionAnalyzer:
             return model
             
         elif model_type == "rfdetr":
-            # Load RF-DETR model architecture with correct class configuration
-            if checkpoint_path and Path(checkpoint_path).exists():
-                # If checkpoint exists, try to load trained model
-                try:
-                    logger.info(f"Loading trained RF-DETR model from: {checkpoint_path}")
-                    checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
-                    
-                    # Create model with configuration matching the checkpoint
-                    model = get_rfdetr_model(self.config)
-                    
-                    # Handle different RF-DETR checkpoint formats with detailed debugging
-                    checkpoint_loaded = False
-                    
-                    # Debug: Log model and checkpoint structure
-                    logger.info(f"RF-DETR model type: {type(model).__name__}")
-                    model_attrs = [attr for attr in dir(model) if not attr.startswith('_')]
-                    logger.info(f"Model attributes: {model_attrs[:10]}...")  # Show first 10
-                    
-                    if isinstance(checkpoint, dict):
-                        logger.info(f"Checkpoint keys: {list(checkpoint.keys())}")
-                    else:
-                        logger.info(f"Checkpoint type: {type(checkpoint)}")
-                    
-                    # RF-DETR Checkpoint Loading: Based on actual RF-DETR source code analysis
-                    # RF-DETR saves: {"model": self.model.model.state_dict(), "args": self.model.args}
-                    # RF-DETR loads: self.model.load_state_dict(checkpoint['model'], strict=False)
-                    
-                    # Strategy 1: RF-DETR standard format - model.model.load_state_dict(checkpoint['model'])
-                    if hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):
+            # FIXED: Use smart loader that falls back if RF-DETR dependencies are broken
+            logger.info("Loading RF-DETR model with smart fallback handling...")
+            
+            try:
+                # Try to load the real RF-DETR model with checkpoint handling
+                model = RFDETRModelLoader.load_model(self.config)
+                
+                # If we have a real RF-DETR model, handle checkpoint loading
+                if hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):
+                    checkpoint_path = self.config.get("local_model_path")
+                    if checkpoint_path and Path(checkpoint_path).exists():
+                        logger.info(f"Loading checkpoint from: {checkpoint_path}")
                         try:
-                            if 'model' in checkpoint and isinstance(checkpoint['model'], dict):
-                                # Standard RF-DETR checkpoint format
+                            checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
+                            
+                            # Try standard RF-DETR checkpoint format
+                            if isinstance(checkpoint, dict) and 'model' in checkpoint:
                                 model.model.load_state_dict(checkpoint['model'], strict=False)
-                                checkpoint_loaded = True
-                                logger.info("SUCCESS: RF-DETR standard format - model.model.load_state_dict(checkpoint['model'])")
-                                
-                                # Also load args if available (for class names etc.)
-                                if 'args' in checkpoint and hasattr(model, 'args'):
-                                    # Extract useful attributes from saved args
-                                    saved_args = checkpoint['args']
-                                    if hasattr(saved_args, 'class_names'):
-                                        model.args.class_names = saved_args.class_names
-                                        logger.info(f"Loaded class names: {saved_args.class_names}")
-                                    if hasattr(saved_args, 'num_classes'):
-                                        logger.info(f"Checkpoint trained with {saved_args.num_classes} classes")
+                                logger.info("✅ Successfully loaded RF-DETR checkpoint")
                             else:
-                                logger.warning("Checkpoint missing 'model' key or not a dict")
-                        except Exception as e:
-                            logger.warning(f"RF-DETR standard loading failed: {e}")
-                    
-                    # Strategy 2: Try legacy formats if standard fails
-                    if not checkpoint_loaded and hasattr(model, 'model') and hasattr(model.model, 'load_state_dict'):
-                        try:
-                            # Try other common checkpoint formats
-                            if 'model_state_dict' in checkpoint:
-                                model.model.load_state_dict(checkpoint['model_state_dict'], strict=False)
-                                checkpoint_loaded = True
-                                logger.info("SUCCESS: Legacy format - model.model.load_state_dict(checkpoint['model_state_dict'])")
-                            elif isinstance(checkpoint, dict) and 'model' not in checkpoint:
-                                # Direct state dict (no wrapper)
-                                model.model.load_state_dict(checkpoint, strict=False)
-                                checkpoint_loaded = True
-                                logger.info("SUCCESS: Direct state dict - model.model.load_state_dict(checkpoint)")
-                        except Exception as e:
-                            logger.warning(f"Legacy format loading failed: {e}")
-                    
-                    # Strategy 3: Wrapper model load_state_dict (if Model class has it)
-                    if not checkpoint_loaded and hasattr(model, 'load_state_dict'):
-                        try:
-                            if 'model' in checkpoint:
-                                model.load_state_dict(checkpoint['model'], strict=False)
-                                checkpoint_loaded = True
-                                logger.info("SUCCESS: Wrapper model - model.load_state_dict(checkpoint['model'])")
-                        except Exception as e:
-                            logger.warning(f"Wrapper model loading failed: {e}")
-                    
-                    if not checkpoint_loaded:
-                        logger.error("Failed to load RF-DETR checkpoint with any known method")
-                        logger.error("This indicates either:")
-                        logger.error("  1. Checkpoint is corrupted or incomplete")
-                        logger.error("  2. Checkpoint format is not compatible with current RF-DETR version")
-                        logger.error("  3. Model architecture mismatch")
-                        logger.info("Falling back to pre-trained model...")
-                        raise ValueError("RF-DETR checkpoint loading failed - using pre-trained model fallback")
-                        
-                    logger.info(f"Successfully loaded RF-DETR weights from: {checkpoint_path}")
-                    
-                except Exception as e:
-                    logger.error(f"Failed to load RF-DETR checkpoint: {e}")
-                    logger.info("Falling back to pre-trained RF-DETR model")
-                    # Fall back to pre-trained model
-                    model = self._load_pretrained_rfdetr_model()
-            else:
-                logger.info("No checkpoint specified or found, using pre-trained RF-DETR model")
-                # Use pre-trained model with proper class handling
-                model = self._load_pretrained_rfdetr_model()
-            
-            # Set model to evaluation mode and optimize for inference
-            if hasattr(model, 'eval'):
-                model.eval()
-                logger.info("Set RF-DETR model to evaluation mode")
-            
-            # Optimize for inference if available
-            if hasattr(model, 'optimize_for_inference'):
-                try:
-                    model.optimize_for_inference()
-                    logger.info("[OK] Optimized RF-DETR model for inference")
-                except Exception as opt_error:
-                    logger.warning(f"Could not optimize RF-DETR for inference: {opt_error}")
-            
-            # Disable gradient computation for inference
-            if hasattr(model, 'requires_grad_'):
-                model.requires_grad_(False)
-                logger.info("Disabled gradient computation for inference")
-            
-            return model
+                                logger.warning("⚠️  Checkpoint format not recognized, using pre-trained weights")
+                                
+                        except Exception as checkpoint_error:
+                            logger.warning(f"⚠️  Checkpoint loading failed: {checkpoint_error}")
+                            logger.info("Using pre-trained RF-DETR weights instead")
+                
+                # Set model to evaluation mode
+                if hasattr(model, 'eval'):
+                    model.eval()
+                    logger.info("Set RF-DETR model to evaluation mode")
+                
+                # Move to device
+                if hasattr(model, 'to'):
+                    model = model.to(self.device)
+                    logger.info(f"Moved RF-DETR model to device: {self.device}")
+                
+                return model
+                
+            except Exception as load_error:
+                logger.error(f"❌ Failed to load any RF-DETR model: {load_error}")
+                raise ValueError(f"RF-DETR model loading completely failed: {load_error}")
             
         else:
             raise ValueError(f"Unsupported model type: {model_type}. Supported types: 'fasterrcnn', 'rfdetr'")
@@ -347,6 +283,10 @@ class Phase1DetectionAnalyzer:
         failures_by_density = defaultdict(int)
         unique_failed_persons = set()
         
+        # FIXED: Collect all predictions and targets for proper mAP calculation
+        all_predictions = []
+        all_targets = []
+        
         # Process each frame
         for dataset_idx in tqdm(camera_indices, desc=f"Processing {scene_id}/{camera_id}"):
             frame_result = self._process_frame(dataset_idx, scene_id, camera_id)
@@ -358,6 +298,11 @@ class Phase1DetectionAnalyzer:
                 true_positives += frame_result['true_positives']
                 false_positives += frame_result['false_positives']
                 false_negatives += frame_result['false_negatives']
+                
+                # FIXED: Collect predictions and targets for mAP calculation
+                if 'predictions' in frame_result and 'targets' in frame_result:
+                    all_predictions.append(frame_result['predictions'])
+                    all_targets.append(frame_result['targets'])
                 
                 # Update failure statistics
                 for failure in frame_result['failures']:
@@ -376,7 +321,35 @@ class Phase1DetectionAnalyzer:
         precision = true_positives / (true_positives + false_positives) if (true_positives + false_positives) > 0 else 0
         recall = true_positives / (true_positives + false_negatives) if (true_positives + false_negatives) > 0 else 0
         f1_score = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
-        map_score = recall  # Simplified mAP approximation
+        
+        # FIXED: Calculate proper mAP using torchmetrics
+        map_score = 0.0
+        if all_predictions and all_targets:
+            try:
+                # Reset the metric for this scene
+                self.map_metric.reset()
+                
+                # Update with all predictions and targets for this scene
+                self.map_metric.update(all_predictions, all_targets)
+                
+                # Compute mAP
+                map_results = self.map_metric.compute()
+                map_score = map_results['map'].item() if 'map' in map_results else 0.0
+                
+                logger.info(f"Computed mAP for {scene_id}/{camera_id}: {map_score:.3f}")
+                
+                # Log additional mAP metrics if available
+                if 'map_50' in map_results:
+                    logger.info(f"  mAP@0.5: {map_results['map_50'].item():.3f}")
+                if 'map_75' in map_results:
+                    logger.info(f"  mAP@0.75: {map_results['map_75'].item():.3f}")
+                    
+            except Exception as map_error:
+                logger.warning(f"Failed to compute mAP for {scene_id}/{camera_id}: {map_error}")
+                map_score = recall  # Fallback to recall approximation
+        else:
+            logger.warning(f"No valid predictions/targets for mAP calculation in {scene_id}/{camera_id}")
+            map_score = recall  # Fallback to recall approximation
         
         # Store scene performance
         scene_performance = ScenePerformance(
@@ -397,7 +370,7 @@ class Phase1DetectionAnalyzer:
         )
         
         self.scene_performances.append(scene_performance)
-        logger.info(f"Completed {scene_id}/{camera_id}: P={precision:.3f}, R={recall:.3f}, F1={f1_score:.3f}")
+        logger.info(f"Completed {scene_id}/{camera_id}: P={precision:.3f}, R={recall:.3f}, F1={f1_score:.3f}, mAP={map_score:.3f}")
     
     def _process_frame(self, dataset_idx: int, scene_id: str, camera_id: str) -> Optional[Dict]:
         """Process a single frame and return analysis results."""
@@ -438,25 +411,30 @@ class Phase1DetectionAnalyzer:
                     image_pil = Image.fromarray(cv2.cvtColor(original_image, cv2.COLOR_BGR2RGB))
                     
                     try:
-                        results = self.model.predict(image_pil)
+                        # FIXED: RF-DETR returns sv.Detections objects directly, not YOLOv8-like results
+                        detections = self.model.predict(image_pil, threshold=self.confidence_threshold)
                         
-                        # Extract predictions from RF-DETR results
-                        pred_boxes = []
-                        pred_scores = []
-                        
-                        if results and hasattr(results, 'boxes') and results.boxes is not None:
-                            # RF-DETR results format
-                            boxes = results.boxes.xyxy.cpu()  # x1, y1, x2, y2
-                            scores = results.boxes.conf.cpu()
-                            labels = results.boxes.cls.cpu()
+                        # Extract predictions from RF-DETR sv.Detections format
+                        if detections is not None and len(detections) > 0:
+                            # sv.Detections format: .xyxy (boxes), .confidence (scores), .class_id (labels)
+                            boxes = torch.tensor(detections.xyxy)  # x1, y1, x2, y2 format
+                            scores = torch.tensor(detections.confidence)
+                            labels = torch.tensor(detections.class_id)
                             
-                            # Filter for person class (class 0 in COCO/RF-DETR)
-                            # This works for both trained (2-class) and pre-trained (90-class) models
+                            # CRITICAL FIX: Person class detection for both trained and pre-trained models
+                            # For trained models (2 classes): person = class 0
+                            # For pre-trained models (90 COCO classes): person = class 0
+                            # RF-DETR consistently uses 0-based indexing where person is always class 0
                             person_mask = labels == 0
                             pred_boxes = boxes[person_mask]
                             pred_scores = scores[person_mask]
                             
                             logger.debug(f"RF-DETR detected {len(boxes)} total objects, {len(pred_boxes)} persons")
+                            logger.debug(f"RF-DETR class distribution: {torch.bincount(labels.long())}")
+                            
+                            # Debug: Log first few detections for troubleshooting
+                            if len(boxes) > 0:
+                                logger.debug(f"RF-DETR sample detection: box={boxes[0]}, score={scores[0]:.3f}, class={labels[0]}")
                         else:
                             # Empty results
                             pred_boxes = torch.empty((0, 4))
@@ -464,7 +442,9 @@ class Phase1DetectionAnalyzer:
                             logger.debug("RF-DETR returned no detections")
                             
                     except Exception as inference_error:
-                        logger.error(f"RF-DETR inference failed: {inference_error}")
+                        logger.error(f"RF-DETR inference failed: {inference_error}", exc_info=True)
+                        logger.error(f"RF-DETR model type: {type(self.model)}")
+                        logger.error(f"RF-DETR image shape: {image_pil.size}")
                         # Return empty results on inference failure
                         pred_boxes = torch.empty((0, 4))
                         pred_scores = torch.empty((0,))
@@ -538,6 +518,22 @@ class Phase1DetectionAnalyzer:
                     )
                     failures.append(failure)
             
+            # FIXED: Format predictions and targets for mAP calculation
+            # torchmetrics MeanAveragePrecision expects:
+            # predictions: List[Dict] with keys: 'boxes', 'scores', 'labels'
+            # targets: List[Dict] with keys: 'boxes', 'labels'
+            
+            predictions_dict = {
+                'boxes': pred_boxes.float(),  # Shape: [N, 4] in xyxy format
+                'scores': pred_scores.float(),  # Shape: [N]
+                'labels': torch.zeros(len(pred_boxes), dtype=torch.long)  # All person class (0)
+            }
+            
+            targets_dict = {
+                'boxes': gt_boxes.float(),  # Shape: [M, 4] in xyxy format  
+                'labels': torch.zeros(len(gt_boxes), dtype=torch.long)  # All person class (0)
+            }
+            
             return {
                 'total_gt_objects': len(gt_ids),
                 'total_predictions': len(pred_boxes),
@@ -545,7 +541,9 @@ class Phase1DetectionAnalyzer:
                 'false_positives': false_positives,
                 'false_negatives': false_negatives,
                 'failures': failures,
-                'scene_conditions': scene_conditions
+                'scene_conditions': scene_conditions,
+                'predictions': predictions_dict,  # For mAP calculation
+                'targets': targets_dict  # For mAP calculation
             }
             
         except Exception as e:
