@@ -7,7 +7,7 @@ models:
     type: "rfdetr"
     size: "base"
     num_classes: 2
-    trained_model_path: "checkpoints/rfdetr/checkpoint_best_total.pth"  # FIXED: Use relative path
+    trained_model_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/spoton_ml/checkpoints/rfdetr/checkpoint_best_total.pth"
     
   fasterrcnn:
     type: "fasterrcnn"

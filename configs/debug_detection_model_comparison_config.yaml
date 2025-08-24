@@ -7,7 +7,7 @@ models:
     type: "rfdetr"
     size: "base"
     num_classes: 2  # FIXED: Always use 2 classes for person detection
-    trained_model_path: "checkpoints/rfdetr/nonexistent.pth"  # Will fallback to pre-trained
+    trained_model_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/spoton_ml/checkpoints/rfdetr/checkpoint_best_total.pth"
     
   fasterrcnn:
     type: "fasterrcnn"

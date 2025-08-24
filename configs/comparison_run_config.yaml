@@ -50,9 +50,9 @@ models_to_run:
       input_width: 640
 
   - model:
-      model_name: "rfdetr_l"
+      model_name: "rfdetr_trained"
       type: "rfdetr"
-      weights_path: "rfdetr_l"
+      weights_path: "C:/Users/jwizzedPC/Downloads/temp_spoton/spoton_ml/checkpoints/rfdetr/checkpoint_best_total.pth"
       confidence_threshold: 0.5
       person_class_id: 1
       input_width: 640
