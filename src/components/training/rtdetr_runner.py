@@ -80,7 +80,8 @@ def create_ultralytics_dataset_config(
         logger.info(f"Converting {len(dataset)} samples to YOLO format...")
         
         for idx in range(len(dataset)):
-            image_path, annotations = dataset.data_samples[dataset.samples_split[idx][0]], dataset.samples_split[idx][1]
+            # Get the image path and annotations directly from samples_split
+            image_path, annotations = dataset.samples_split[idx]
             
             # Copy image
             image_filename = f"{dataset.mode}_{idx:06d}.jpg"
