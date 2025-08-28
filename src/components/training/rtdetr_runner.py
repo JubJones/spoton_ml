@@ -92,27 +92,28 @@ def create_ultralytics_dataset_config(
             label_filename = f"{dataset.mode}_{idx:06d}.txt"
             label_path = labels_dir / label_filename
             
+            # Get image dimensions
+            try:
+                from PIL import Image
+                with Image.open(image_path) as img:
+                    img_width, img_height = img.size
+            except:
+                # Fallback to standard resolution if image can't be opened
+                img_width, img_height = 1920, 1080
+            
             with open(label_path, 'w') as f:
-                for ann in annotations.persons:
+                # annotations is List[Tuple[int, float, float, float, float]]
+                # Each tuple: (obj_id, center_x, center_y, bb_width, bb_height)
+                for obj_id, center_x, center_y, bb_width, bb_height in annotations:
                     # Convert to YOLO format: class_id center_x center_y width height (normalized)
-                    # Get image dimensions
-                    try:
-                        from PIL import Image
-                        with Image.open(image_path) as img:
-                            img_width, img_height = img.size
-                    except:
-                        # Fallback to standard resolution if image can't be opened
-                        img_width, img_height = 1920, 1080
-                    
-                    # Convert bbox from (x, y, w, h) to normalized center format
-                    x, y, w, h = ann.bbox
-                    center_x = (x + w/2) / img_width
-                    center_y = (y + h/2) / img_height
-                    norm_width = w / img_width
-                    norm_height = h / img_height
+                    # Normalize coordinates
+                    norm_center_x = center_x / img_width
+                    norm_center_y = center_y / img_height
+                    norm_width = bb_width / img_width
+                    norm_height = bb_height / img_height
                     
                     # Class 0 for person (Ultralytics uses 0-based indexing)
-                    f.write(f"0 {center_x:.6f} {center_y:.6f} {norm_width:.6f} {norm_height:.6f}\\n")
+                    f.write(f"0 {norm_center_x:.6f} {norm_center_y:.6f} {norm_width:.6f} {norm_height:.6f}\n")
     
     # Convert datasets
     convert_dataset_to_yolo(train_dataset, train_images_dir, train_labels_dir)
