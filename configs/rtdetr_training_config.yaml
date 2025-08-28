@@ -1,0 +1,109 @@
+mlflow:
+  experiment_name: "MTMMC Detection Training (RT-DETR)"
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+
+data:
+  # base_path: "/Volumes/HDD/MTMMC"
+  base_path: "D:/MTMMC" # Adjust to your dataset location
+  # Define scenes and cameras to USE for this entire comparison run
+  # The dataset loader will combine data from these sources.
+  scenes_to_include:
+    - scene_id: "s10" # Factory
+      camera_ids: ["c09", "c12", "c13", "c16"] # Use all cameras from the scene
+    - scene_id: "s47" # Campus
+      camera_ids: ["c01", "c02", "c03", "c05"] # Use all cameras from the scene
+
+  # Data subsetting for faster runs/debugging
+  use_data_subset: true # Set to false to use all data
+  data_subset_fraction: 0.1
+  # Use 10% of the data if use_data_subset is true
+
+  # Train/Val split
+  val_split_ratio: 0.2 # Proportion of (sub)set to use for validation
+  num_workers: 2 # Number of workers for DataLoader
+
+# --- Models to Train (Child Runs) ---
+models_to_train:
+  # --- RT-DETR Configuration ---
+  - model:
+      type: "rtdetr"
+      name_tag: "RTDETR_Ultralytics" # Used for run naming if run_name isn't specified below
+      model_size: "rtdetr-l.pt" # Options: rtdetr-l.pt, rtdetr-x.pt, or custom path
+      num_classes: 1 # Only person class (Ultralytics format - no background)
+      
+    training:
+      engine: "ultralytics"
+      epochs: 100
+      batch_size: 4
+      learning_rate: 0.001
+      # RT-DETR specific parameters for Ultralytics
+      imgsz: 640 # Image size for training
+      patience: 50 # Early stopping patience
+      save_period: 10 # Save checkpoint every N epochs
+      cache: false # Cache images to RAM/disk for faster training
+      device: null # Will use the device from environment config
+      workers: 2 # Number of worker threads for data loading (overrides data.num_workers)
+      project: "checkpoints" # Project directory for saving runs
+      name: "rtdetr_run" # Run name for saving checkpoints
+      exist_ok: true # Overwrite existing project/name
+      pretrained: true # Use pretrained weights
+      optimizer: "AdamW" # Optimizer: SGD, Adam, AdamW, NAdam, RAdam, RMSProp
+      verbose: true # Verbose output
+      seed: 42 # Random seed (will be overridden by environment.seed)
+      deterministic: true # Deterministic training for reproducibility
+      single_cls: true # Train as single-class dataset (person only)
+      rect: false # Rectangular training
+      cos_lr: false # Cosine learning rate scheduler
+      close_mosaic: 10 # Disable mosaic augmentation for final epochs
+      resume: false # Resume training from last checkpoint
+      amp: true # Automatic Mixed Precision training
+      fraction: 1.0 # Dataset fraction to train/val/test on
+      profile: false # Profile ONNX and TensorRT speeds during training for best inference speed
+      freeze: null # Freeze layers: backbone=10, first3=0:3, etc
+      # Learning rate scheduler
+      lr0: 0.01 # Initial learning rate
+      lrf: 0.01 # Final learning rate (lr0 * lrf)
+      momentum: 0.937 # SGD momentum/Adam beta1
+      weight_decay: 0.0005 # Optimizer weight decay 5e-4
+      warmup_epochs: 3.0 # Warmup epochs (fractions ok)
+      warmup_momentum: 0.8 # Warmup initial momentum
+      warmup_bias_lr: 0.1 # Warmup initial bias lr
+      box: 7.5 # Box loss gain
+      cls: 0.5 # Cls loss gain (used with pixels and ratio)
+      dfl: 1.5 # DFL loss gain
+      pose: 12.0 # Pose loss gain (pose-only models)
+      kobj: 2.0 # Keypoint obj loss gain (pose-only models)
+      label_smoothing: 0.0 # Label smoothing (fraction)
+      nbs: 64 # Nominal batch size for normalization
+      hsv_h: 0.015 # Image HSV-Hue augmentation (fraction)
+      hsv_s: 0.7 # Image HSV-Saturation augmentation (fraction)
+      hsv_v: 0.4 # Image HSV-Value augmentation (fraction)
+      degrees: 0.0 # Image rotation (+/- deg)
+      translate: 0.1 # Image translation (+/- fraction)
+      scale: 0.5 # Image scale (+/- gain)
+      shear: 0.0 # Image shear (+/- deg)
+      perspective: 0.0 # Image perspective (+/- fraction), range 0-0.001
+      flipud: 0.0 # Image flip up-down (probability)
+      fliplr: 0.5 # Image flip left-right (probability)
+      mosaic: 1.0 # Image mosaic (probability)
+      mixup: 0.0 # Image mixup (probability)
+      copy_paste: 0.0 # Segment copy-paste (probability)
+      
+      # Validation settings
+      val: true # Validate/test during training
+      split: "val" # Dataset split to use for validation (train/val/test)
+      save_json: true # Save results to JSON file for analysis
+      save_hybrid: false # Save hybrid version of labels (labels + additional information)
+      conf: null # Object confidence threshold for detection (default 0.25 predict, 0.001 val)
+      iou: 0.7 # Intersection over Union (IoU) threshold for NMS
+      max_det: 300 # Maximum number of detections per image
+      half: false # Use half precision (FP16)
+      dnn: false # Use OpenCV DNN for ONNX inference
+      plots: true # Show plots during training
+      
+      # Additional RT-DETR specific settings
+      save_best_metric: "metrics/mAP50-95(B)" # Metric to save best model
+      checkpoint_dir: "checkpoints/rtdetr"
