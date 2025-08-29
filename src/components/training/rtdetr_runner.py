@@ -216,7 +216,25 @@ def run_rtdetr_training_job(
         
         # Log model info
         model.info()
-        mlflow.log_param("model.parameters", model.model[-1].nc if hasattr(model.model[-1], 'nc') else 'unknown')
+        
+        # Safely log model parameters
+        try:
+            # Try different ways to get model info
+            if hasattr(model, 'model') and hasattr(model.model, 'nc'):
+                mlflow.log_param("model.num_classes", model.model.nc)
+            elif hasattr(model, 'nc'):
+                mlflow.log_param("model.num_classes", model.nc)
+            else:
+                mlflow.log_param("model.num_classes", 1)  # Default to 1 for person class
+                
+            # Log model name and size
+            mlflow.log_param("model.architecture", "rtdetr")
+            mlflow.log_param("model.size", model_size)
+            
+        except Exception as e:
+            logger.warning(f"Could not log model parameters: {e}")
+            mlflow.log_param("model.architecture", "rtdetr")
+            mlflow.log_param("model.size", model_size)
         
         # Configure training parameters
         train_args = {
