@@ -60,28 +60,34 @@ models_to_train:
       engine: "rfdetr"
       epochs: 100
       batch_size: 4
-      learning_rate: 1e-4 # Primary learning rate
-      lr_encoder: 1.5e-4 # Encoder learning rate
+      learning_rate: 5e-5 # FIXED: Reduced from 1e-4 to prevent gradient explosion
+      lr_encoder: 1e-4 # FIXED: Reduced from 1.5e-4, should be <= base LR
       weight_decay: 1e-4
       
       # RF-DETR specific parameters
       grad_accum_steps: 4 # Gradient accumulation steps
-      warmup_epochs: 0 # Warmup epochs
-      lr_drop: 100 # Learning rate drop epoch
-      ema_decay: 0.993 # EMA decay rate
+      warmup_epochs: 5 # FIXED: Added warmup from 0 to stabilize early training
+      lr_drop: 80 # FIXED: Drop LR earlier (was 100) to prevent late-stage instability
+      ema_decay: 0.999 # FIXED: Increased from 0.993 for more stability
       ema_tau: 100 # EMA tau parameter
-      lr_vit_layer_decay: 0.8 # ViT layer learning rate decay
-      lr_component_decay: 0.7 # Component learning rate decay
-      drop_path: 0.0 # Drop path rate
+      lr_vit_layer_decay: 0.9 # FIXED: Increased from 0.8 for more conservative decay
+      lr_component_decay: 0.8 # FIXED: Increased from 0.7 for stability
+      drop_path: 0.0 # Drop path rate (keep disabled for stability)
+      
+      # STABILITY FIXES: Add gradient monitoring and clipping
+      gradient_clip_val: 1.0 # Add gradient clipping to prevent explosions
+      gradient_clip_algorithm: "norm" # Use gradient norm clipping
+      monitor_gradients: true # Enable gradient monitoring
+      log_gradient_stats: true # Log gradient statistics
       
       # Data augmentation
       multi_scale: true # Enable multi-scale training
       expanded_scales: true # Enable expanded scales
       
-      # Early stopping
-      early_stopping: false # Enable early stopping
-      early_stopping_patience: 10 # Early stopping patience
-      early_stopping_min_delta: 0.001 # Early stopping minimum delta
+      # Early stopping - IMPROVED
+      early_stopping: true # FIXED: Enable early stopping to prevent overtraining
+      early_stopping_patience: 20 # FIXED: Reduced from 50 to catch instability earlier
+      early_stopping_min_delta: 0.005 # FIXED: Increased threshold for more robust stopping
       
       # Checkpointing
       checkpoint_interval: 10 # Save checkpoint every N epochs

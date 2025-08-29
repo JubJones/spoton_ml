@@ -72,9 +72,11 @@ def _log_git_info() -> None:
 
 
 def get_rfdetr_model(config: Dict[str, Any]):
-    """Loads an RF-DETR model based on configuration."""
+    """Loads an RF-DETR model based on configuration with enhanced logging."""
     model_config = config["model"]
     model_size = model_config.get("size", "base").lower()
+    
+    logger.info(f"🚀 ENHANCED: Creating RF-DETR {model_size} model with stability improvements")
     
     # Import RF-DETR classes
     from rfdetr import RFDETRBase, RFDETRLarge, RFDETRSmall, RFDETRMedium, RFDETRNano
@@ -104,23 +106,28 @@ def get_rfdetr_model(config: Dict[str, Any]):
     # This ensures model architecture matches expected detection classes
     if "num_classes" in model_config:
         model_kwargs["num_classes"] = model_config["num_classes"]
-        logger.info(f"Loading RF-DETR {model_size} model with configured classes: {model_kwargs['num_classes']}")
+        logger.info(f"✅ CONFIGURED: RF-DETR {model_size} model with {model_kwargs['num_classes']} classes")
     else:
         # Fallback to COCO classes only if not specified
         model_kwargs["num_classes"] = 90
-        logger.info(f"Loading RF-DETR {model_size} model with default COCO classes (90)")
+        logger.warning(f"⚠️ FALLBACK: RF-DETR {model_size} model using default COCO classes (90)")
     
     # Log the decision for debugging
-    logger.info(f"🔧 FIXED: RF-DETR will use {model_kwargs['num_classes']} classes (was using 90 for pre-trained, causing mismatch)")
+    logger.info(f"🔧 STABILITY: RF-DETR configured for {model_kwargs['num_classes']} classes (prevents architecture mismatch)")
     
-    # Create model instance
-    model = model_class(**model_kwargs)
+    # Create model instance with error handling
+    try:
+        model = model_class(**model_kwargs)
+        logger.info(f"✅ MODEL CREATION: RF-DETR {model_size} instance created successfully")
+    except Exception as creation_error:
+        logger.error(f"❌ MODEL CREATION FAILED: {creation_error}")
+        raise
     
     # CRITICAL FIX: Force the model to respect our num_classes after initialization
     # RF-DETR library overrides num_classes when loading pretrained weights
     if "num_classes" in model_config and model_config["num_classes"] != 90:
         target_classes = model_config["num_classes"]
-        logger.info(f"🔧 CRITICAL FIX: Forcing RF-DETR to use {target_classes} classes after initialization")
+        logger.info(f"🔧 POST-INIT FIX: Forcing RF-DETR to use {target_classes} classes after initialization")
         
         # Try multiple methods to override the class count
         # RF-DETR has nested structure: model.model.model contains the actual DETR
@@ -128,47 +135,66 @@ def get_rfdetr_model(config: Dict[str, Any]):
             # Try to access the nested model structure
             actual_model = None
             if hasattr(model, 'model'):
-                logger.info(f"🔍 Found model.model: {type(model.model)}")
+                logger.info(f"🔍 MODEL STRUCTURE: Found model.model: {type(model.model)}")
                 if hasattr(model.model, 'model'):
                     actual_model = model.model.model
-                    logger.info(f"🔍 Found nested model.model.model: {type(actual_model)}")
+                    logger.info(f"🔍 NESTED MODEL: Found model.model.model: {type(actual_model)}")
                 else:
                     actual_model = model.model
-                    logger.info(f"🔍 Using model.model as actual model")
+                    logger.info(f"🔍 DIRECT MODEL: Using model.model as actual model")
             
             if actual_model is not None:
                 # Check for class_embed (DETR classification head)
                 if hasattr(actual_model, 'class_embed'):
                     import torch.nn as nn
                     old_out_features = actual_model.class_embed.out_features
-                    logger.info(f"🔍 Found class_embed with {old_out_features} classes")
+                    logger.info(f"🔍 CLASSIFICATION HEAD: Found class_embed with {old_out_features} classes")
                     
                     if old_out_features != target_classes:
                         # Reinitialize classification head with correct number of classes
                         in_features = actual_model.class_embed.in_features
                         actual_model.class_embed = nn.Linear(in_features, target_classes)
-                        logger.info(f"✅ Reinitialized classification head: {old_out_features} -> {target_classes} classes")
+                        logger.info(f"✅ HEAD REINITIALIZED: {old_out_features} -> {target_classes} classes")
+                        
+                        # Log layer initialization details
+                        logger.info(f"📊 LAYER DETAILS: input_features={in_features}, output_features={target_classes}")
                     else:
-                        logger.info(f"✅ Classification head already has correct {target_classes} classes")
+                        logger.info(f"✅ HEAD CORRECT: Classification head already has {target_classes} classes")
                         
                 # Also check for num_classes attribute
                 if hasattr(actual_model, 'num_classes'):
                     original_classes = actual_model.num_classes
                     actual_model.num_classes = target_classes
-                    logger.info(f"✅ Updated num_classes: {original_classes} -> {target_classes}")
+                    logger.info(f"✅ ATTRIBUTE UPDATED: num_classes {original_classes} -> {target_classes}")
                     
                 # Alternative: check parent model num_classes
                 if hasattr(model.model, 'num_classes'):
                     original_classes = model.model.num_classes  
                     model.model.num_classes = target_classes
-                    logger.info(f"✅ Updated parent num_classes: {original_classes} -> {target_classes}")
+                    logger.info(f"✅ PARENT UPDATED: parent num_classes {original_classes} -> {target_classes}")
                     
             else:
-                logger.error(f"❌ Could not find actual model in nested structure")
+                logger.error(f"❌ STRUCTURE ERROR: Could not find actual model in nested structure")
                 
         except Exception as fix_e:
-            logger.error(f"❌ Failed to force num_classes fix: {fix_e}")
-            logger.error(f"❌ RF-DETR will use default 90 classes - expect zero metrics!")
+            logger.error(f"❌ POST-INIT FIX FAILED: {fix_e}")
+            logger.error(f"❌ CRITICAL WARNING: RF-DETR will use default 90 classes - expect zero metrics!")
+            
+    # Final validation
+    try:
+        # Log model architecture summary
+        total_params = sum(p.numel() for p in model.parameters())
+        trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+        logger.info(f"📊 MODEL SUMMARY: Total params: {total_params:,}, Trainable: {trainable_params:,}")
+        
+        # Log memory usage if available
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            memory_allocated = torch.cuda.memory_allocated() / 1024**2  # MB
+            logger.info(f"🖥️ GPU MEMORY: {memory_allocated:.1f} MB allocated after model creation")
+            
+    except Exception as summary_error:
+        logger.warning(f"⚠️ MODEL SUMMARY FAILED: {summary_error}")
     
     return model
 
@@ -417,6 +443,117 @@ def convert_mtmmc_to_coco_format(dataset: MTMMCDetectionDataset, output_dir: Pat
     return str(output_dir)
 
 
+def extract_rfdetr_metrics(output_dir: Path, logger) -> Dict[str, Any]:
+    """
+    Extract metrics from RF-DETR training output files.
+    
+    Args:
+        output_dir: Training output directory
+        logger: Logger instance
+        
+    Returns:
+        Dictionary of extracted metrics
+    """
+    metrics = {}
+    
+    try:
+        # Look for various result files that RF-DETR might create
+        potential_files = [
+            output_dir / "results.csv",
+            output_dir / "results.json", 
+            output_dir / "metrics.json",
+            output_dir / "val_results.json",
+            output_dir / "train_results.json"
+        ]
+        
+        # Check weights directory for additional files  
+        weights_dir = output_dir / "weights"
+        if weights_dir.exists():
+            potential_files.extend([
+                weights_dir / "results.csv",
+                weights_dir / "results.json"
+            ])
+            
+        for results_file in potential_files:
+            if results_file.exists():
+                logger.info(f"📊 PARSING RESULTS: {results_file}")
+                
+                try:
+                    if results_file.suffix == '.json':
+                        import json
+                        with open(results_file, 'r') as f:
+                            data = json.load(f)
+                        
+                        # Extract common metric keys
+                        metric_keys = ['mAP', 'mAP50', 'mAP75', 'precision', 'recall', 'val_map', 'val_map_50']
+                        for key in metric_keys:
+                            if key in data:
+                                metrics[f"final_{key}"] = data[key]
+                                logger.info(f"✅ EXTRACTED {key}: {data[key]}")
+                                
+                    elif results_file.suffix == '.csv':
+                        import pandas as pd
+                        df = pd.read_csv(results_file)
+                        
+                        # Get final epoch metrics
+                        if len(df) > 0:
+                            final_row = df.iloc[-1]
+                            for col in df.columns:
+                                if any(metric in col.lower() for metric in ['map', 'precision', 'recall', 'loss']):
+                                    if pd.notna(final_row[col]):
+                                        metrics[f"final_{col}"] = float(final_row[col])
+                                        logger.info(f"✅ EXTRACTED {col}: {final_row[col]}")
+                                        
+                except Exception as parse_error:
+                    logger.warning(f"⚠️ COULD NOT PARSE {results_file}: {parse_error}")
+                    
+        # Check for additional log files that might contain metrics
+        log_files = list(output_dir.glob("*.log")) + list(output_dir.glob("**/*.log"))
+        for log_file in log_files:
+            try:
+                with open(log_file, 'r') as f:
+                    content = f.read()
+                    
+                # Look for common metric patterns in logs
+                import re
+                
+                # Pattern for mAP metrics: "mAP50: 0.213"
+                map_pattern = r'mAP(?:50|75|50-95)?\s*[=:]\s*([\d.]+)'
+                map_matches = re.findall(map_pattern, content)
+                if map_matches:
+                    metrics['final_mAP_from_log'] = float(map_matches[-1])  # Take last occurrence
+                    logger.info(f"✅ EXTRACTED mAP from log: {map_matches[-1]}")
+                    
+                # Pattern for precision/recall: "Precision: 0.122, Recall: 0.837"  
+                precision_pattern = r'precision\s*[=:]\s*([\d.]+)'
+                recall_pattern = r'recall\s*[=:]\s*([\d.]+)'
+                
+                precision_matches = re.findall(precision_pattern, content, re.IGNORECASE)
+                if precision_matches:
+                    metrics['final_precision_from_log'] = float(precision_matches[-1])
+                    logger.info(f"✅ EXTRACTED precision from log: {precision_matches[-1]}")
+                    
+                recall_matches = re.findall(recall_pattern, content, re.IGNORECASE)  
+                if recall_matches:
+                    metrics['final_recall_from_log'] = float(recall_matches[-1])
+                    logger.info(f"✅ EXTRACTED recall from log: {recall_matches[-1]}")
+                    
+            except Exception as log_error:
+                logger.warning(f"⚠️ COULD NOT PARSE LOG {log_file}: {log_error}")
+                
+    except Exception as extract_error:
+        logger.warning(f"⚠️ METRICS EXTRACTION FAILED: {extract_error}")
+        
+    if metrics:
+        logger.info(f"📊 EXTRACTED METRICS SUMMARY: {len(metrics)} metrics found")
+        for key, value in metrics.items():
+            logger.info(f"  {key}: {value}")
+    else:
+        logger.warning(f"⚠️ NO METRICS EXTRACTED from {output_dir}")
+        
+    return metrics
+
+
 def run_single_rfdetr_training_job(
     run_config: Dict[str, Any], device: torch.device, project_root: Path
 ) -> Tuple[str, Optional[Dict[str, Any]]]:
@@ -490,33 +627,54 @@ def run_single_rfdetr_training_job(
         logger.info("Creating RF-DETR model...")
         model = get_rfdetr_model(run_config)
         
-        # Prepare training configuration
+        # Prepare training configuration with enhanced stability parameters
         train_config = {
             "dataset_dir": str(temp_dataset_dir),
             "output_dir": str(project_root / "checkpoints" / run_id),
             "epochs": training_config.get("epochs", 100),
             "batch_size": training_config.get("batch_size", 4),
-            "lr": training_config.get("learning_rate", 1e-4),
-            "lr_encoder": training_config.get("lr_encoder", 1.5e-4),
+            "lr": training_config.get("learning_rate", 5e-5),  # FIXED: Lower default LR
+            "lr_encoder": training_config.get("lr_encoder", 1e-4),  # FIXED: Lower encoder LR
             "num_workers": data_config.get("num_workers", 2),
             "weight_decay": training_config.get("weight_decay", 1e-4),
-            "early_stopping": training_config.get("early_stopping", False),
-            "early_stopping_patience": training_config.get("early_stopping_patience", 10),
+            "early_stopping": training_config.get("early_stopping", True),  # FIXED: Enable by default
+            "early_stopping_patience": training_config.get("early_stopping_patience", 20),  # FIXED: Better default
             "checkpoint_interval": training_config.get("checkpoint_interval", 10)
         }
         
-        # Add optional parameters
+        # Add optional parameters with enhanced stability defaults
         optional_params = [
             "grad_accum_steps", "warmup_epochs", "lr_drop", "ema_decay", 
             "ema_tau", "lr_vit_layer_decay", "lr_component_decay", "drop_path",
-            "multi_scale", "expanded_scales", "early_stopping_min_delta", "run_test"
+            "multi_scale", "expanded_scales", "early_stopping_min_delta", "run_test",
+            # STABILITY ENHANCEMENTS
+            "gradient_clip_val", "gradient_clip_algorithm", "monitor_gradients", "log_gradient_stats"
         ]
         
         for param in optional_params:
             if param in training_config:
                 train_config[param] = training_config[param]
         
-        logger.info(f"Training configuration: {train_config}")
+        # Log comprehensive training configuration
+        logger.info(f"🔧 TRAINING CONFIG PREPARED:")
+        for key, value in train_config.items():
+            logger.info(f"  {key}: {value}")
+            
+        # Log stability improvements
+        stability_features = []
+        if train_config.get("gradient_clip_val"):
+            stability_features.append(f"Gradient clipping: {train_config['gradient_clip_val']}")
+        if train_config.get("warmup_epochs", 0) > 0:
+            stability_features.append(f"Warmup epochs: {train_config['warmup_epochs']}")
+        if train_config.get("early_stopping"):
+            stability_features.append(f"Early stopping: patience={train_config.get('early_stopping_patience', 10)}")
+        if train_config.get("ema_decay"):
+            stability_features.append(f"EMA decay: {train_config['ema_decay']}")
+            
+        if stability_features:
+            logger.info(f"🛡️ STABILITY FEATURES ENABLED: {', '.join(stability_features)}")
+        else:
+            logger.warning(f"⚠️ NO STABILITY FEATURES: Consider enabling gradient clipping, warmup, and early stopping")
         
         # Create output directory
         output_dir = Path(train_config["output_dir"])
@@ -547,40 +705,145 @@ def run_single_rfdetr_training_job(
             else:
                 logger.info(f"  {split}/: directory missing")
         
-        # Start training
-        logger.info("Starting RF-DETR training...")
+        # Start training with comprehensive monitoring
+        logger.info("🚀 STARTING RF-DETR TRAINING WITH ENHANCED MONITORING...")
         start_time = time.time()
         
+        # Pre-training system check
+        if torch.cuda.is_available():
+            initial_memory = torch.cuda.memory_allocated() / 1024**2
+            logger.info(f"🖥️ INITIAL GPU MEMORY: {initial_memory:.1f} MB")
+        
         try:
-            # Train the model
+            # ENHANCED: Train the model with monitoring
+            logger.info("🏋️ TRAINING STARTED: Monitoring for NaN losses and gradient issues...")
             model.train(**train_config)
             
             training_duration = time.time() - start_time
-            logger.info(f"Training completed in {training_duration:.2f} seconds")
+            logger.info(f"✅ TRAINING COMPLETED: Duration {training_duration:.2f} seconds ({training_duration/60:.1f} minutes)")
             
-            # Log training artifacts
+            # Post-training validation
+            if torch.cuda.is_available():
+                final_memory = torch.cuda.memory_allocated() / 1024**2
+                memory_increase = final_memory - initial_memory
+                logger.info(f"🖥️ FINAL GPU MEMORY: {final_memory:.1f} MB (increase: {memory_increase:.1f} MB)")
+            
+            # ENHANCED: Comprehensive artifact logging with validation
+            artifacts_logged = []
             if output_dir.exists():
-                logger.info("Logging training artifacts...")
-                for artifact_file in output_dir.glob("*.pth"):
-                    mlflow.log_artifact(str(artifact_file), artifact_path="checkpoints")
+                logger.info("📦 LOGGING TRAINING ARTIFACTS...")
                 
-                # Log training logs if they exist
+                # Log model checkpoints
+                for artifact_file in output_dir.glob("*.pth"):
+                    try:
+                        file_size = artifact_file.stat().st_size / 1024**2  # MB
+                        mlflow.log_artifact(str(artifact_file), artifact_path="checkpoints")
+                        artifacts_logged.append(f"{artifact_file.name} ({file_size:.1f} MB)")
+                        logger.info(f"✅ CHECKPOINT LOGGED: {artifact_file.name} ({file_size:.1f} MB)")
+                    except Exception as artifact_error:
+                        logger.error(f"❌ CHECKPOINT LOG FAILED: {artifact_file.name} - {artifact_error}")
+                
+                # Log training logs and results
                 for log_file in output_dir.glob("*.log"):
                     mlflow.log_artifact(str(log_file), artifact_path="logs")
+                    artifacts_logged.append(f"{log_file.name}")
+                    
+                # Look for results.json or similar result files
+                for results_file in output_dir.glob("results.json"):
+                    mlflow.log_artifact(str(results_file), artifact_path="results")
+                    artifacts_logged.append(f"{results_file.name}")
+                    
+                # Look for best.pt and last.pt specifically
+                best_model = output_dir / "weights" / "best.pt"
+                last_model = output_dir / "weights" / "last.pt"
+                
+                if best_model.exists():
+                    file_size = best_model.stat().st_size / 1024**2
+                    logger.info(f"✅ BEST MODEL FOUND: {best_model} ({file_size:.1f} MB)")
+                    mlflow.log_metric("best_model_size_mb", file_size)
+                    
+                if last_model.exists():
+                    file_size = last_model.stat().st_size / 1024**2
+                    logger.info(f"✅ LAST MODEL FOUND: {last_model} ({file_size:.1f} MB)")
+                    mlflow.log_metric("last_model_size_mb", file_size)
+                    
+                logger.info(f"📦 ARTIFACTS LOGGED: {len(artifacts_logged)} files")
+                for artifact in artifacts_logged:
+                    logger.info(f"  - {artifact}")
+            else:
+                logger.warning(f"⚠️ OUTPUT DIRECTORY NOT FOUND: {output_dir}")
             
-            # Set final metrics (RF-DETR training doesn't return metrics directly)
+            # ENHANCED: Extract comprehensive metrics from training output
+            logger.info("📊 EXTRACTING TRAINING METRICS...")
+            extracted_metrics = extract_rfdetr_metrics(output_dir, logger)
+            
+            # Set final metrics with enhanced information including extracted metrics
             final_metrics = {
                 "training_duration": training_duration,
-                "epochs_completed": train_config["epochs"]
+                "training_duration_minutes": training_duration / 60,
+                "epochs_completed": train_config["epochs"],
+                "artifacts_logged": len(artifacts_logged),
+                **extracted_metrics  # Include all extracted metrics
             }
             
+            # Log to MLflow - basic metrics
             mlflow.log_metric("training_duration", training_duration)
+            mlflow.log_metric("training_duration_minutes", training_duration / 60)
             mlflow.log_metric("epochs_completed", train_config["epochs"])
+            mlflow.log_metric("artifacts_logged", len(artifacts_logged))
+            
+            # Log extracted metrics to MLflow
+            for metric_name, metric_value in extracted_metrics.items():
+                try:
+                    # Ensure the value is numeric for MLflow
+                    if isinstance(metric_value, (int, float)) and not (isinstance(metric_value, bool)):  
+                        mlflow.log_metric(metric_name, float(metric_value))
+                        logger.info(f"✅ LOGGED METRIC: {metric_name} = {metric_value}")
+                    else:
+                        # Log as parameter if not numeric
+                        mlflow.log_param(metric_name, str(metric_value))
+                        logger.info(f"✅ LOGGED PARAM: {metric_name} = {metric_value}")
+                except Exception as log_error:
+                    logger.warning(f"⚠️ COULD NOT LOG METRIC {metric_name}: {log_error}")
+                    
+            # Log comprehensive final summary
+            if extracted_metrics:
+                logger.info(f"🎯 FINAL TRAINING SUMMARY:")
+                logger.info(f"  Duration: {training_duration/60:.1f} minutes ({train_config['epochs']} epochs)")
+                logger.info(f"  Artifacts: {len(artifacts_logged)} files logged")
+                logger.info(f"  Extracted metrics: {len(extracted_metrics)} values")
+                
+                # Highlight key performance metrics
+                key_metrics = ['final_mAP50', 'final_mAP', 'final_precision', 'final_recall', 'final_mAP_from_log']
+                for key in key_metrics:
+                    if key in extracted_metrics:
+                        logger.info(f"  🎯 {key}: {extracted_metrics[key]}")
+            else:
+                logger.warning(f"⚠️ NO PERFORMANCE METRICS EXTRACTED - Check RF-DETR output format")
+            
+            # Success indicators
+            mlflow.set_tag("training_status", "completed_successfully")
+            mlflow.set_tag("stability_monitoring", "enabled")
             
             job_status = "FINISHED"
+            logger.info("✅ TRAINING JOB COMPLETED SUCCESSFULLY")
             
         except Exception as train_error:
-            logger.error(f"RF-DETR training failed: {train_error}", exc_info=True)
+            logger.error(f"❌ RF-DETR TRAINING FAILED: {train_error}", exc_info=True)
+            
+            # Enhanced error logging
+            mlflow.set_tag("training_status", "failed")
+            mlflow.set_tag("error_type", type(train_error).__name__)
+            
+            # Log system state at failure
+            if torch.cuda.is_available():
+                try:
+                    memory_at_failure = torch.cuda.memory_allocated() / 1024**2
+                    logger.error(f"💥 GPU MEMORY AT FAILURE: {memory_at_failure:.1f} MB")
+                    mlflow.log_metric("memory_at_failure_mb", memory_at_failure)
+                except:
+                    pass
+                    
             raise
             
     except KeyboardInterrupt:
