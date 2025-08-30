@@ -25,17 +25,38 @@ import ultralytics.utils
 # Update this to point to your MTMMC dataset
 BASE_PATH = "D:/MTMMC"  # Change this to your dataset path
 
-# Training settings
-EPOCHS = 100
-BATCH_SIZE = 16
-IMAGE_SIZE = 640
-DEVICE = "0"  # GPU device (use "cpu" for CPU training)
+# Training settings - MINIMAL RESOURCE TEST
+EPOCHS = 2  # Quick test with just 2 epochs
+BATCH_SIZE = 4  # Smaller batch size for less GPU memory
+IMAGE_SIZE = 320  # Smaller image size for faster training
+
+# GPU Detection and Device Selection
+def get_best_device():
+    """Detect and return the best available device"""
+    try:
+        import torch
+        if torch.cuda.is_available():
+            gpu_count = torch.cuda.device_count()
+            print(f"🔥 CUDA available! Found {gpu_count} GPU(s)")
+            for i in range(gpu_count):
+                gpu_name = torch.cuda.get_device_name(i)
+                gpu_memory = torch.cuda.get_device_properties(i).total_memory / (1024**3)
+                print(f"   GPU {i}: {gpu_name} ({gpu_memory:.1f} GB)")
+            return "0"  # Use first GPU
+        else:
+            print("⚠️  CUDA not available, falling back to CPU")
+            return "cpu"
+    except ImportError:
+        print("⚠️  PyTorch not available for device detection, using default")
+        return "0"
+
+DEVICE = get_best_device()
 
 # Dataset settings - using factory environment, scene s10
 SELECTED_ENVIRONMENT = "factory"  # "factory" or "campus"
 SCENE_ID = "s10"
-CAMERA_IDS = ["c09", "c12", "c13", "c16"]  # Factory scene cameras
-MAX_FRAMES = 500  # Max frames per camera (-1 for all)
+CAMERA_IDS = ["c09"]  # Single camera for minimal test
+MAX_FRAMES = 50  # Very limited frames for quick test
 
 # Output directory
 OUTPUT_DIR = Path("rtdetr_training_output")
@@ -209,6 +230,9 @@ def main():
             lr0=0.001,  # Initial learning rate
             weight_decay=0.0005,
             warmup_epochs=3,
+            # GPU optimization settings
+            amp=True,  # Enable Automatic Mixed Precision
+            half=False,  # Use FP16 if GPU memory is limited
         )
         
         print("\n" + "=" * 50)
