@@ -241,9 +241,13 @@ def main():
         print("=" * 50)
         
         # Print some basic results
-        if hasattr(results, 'maps'):
-            print(f"Final mAP@0.5: {results.maps[0]:.4f}")
-            print(f"Final mAP@0.5:0.95: {results.maps[1]:.4f}")
+        if hasattr(results, 'maps') and len(results.maps) > 0:
+            if len(results.maps) >= 2:
+                print(f"Final mAP@0.5: {results.maps[0]:.4f}")
+                print(f"Final mAP@0.5:0.95: {results.maps[1]:.4f}")
+            else:
+                # Only one metric available (likely mAP@0.5:0.95)
+                print(f"Final mAP@0.5:0.95: {results.maps[0]:.4f}")
         
     except Exception as e:
         print(f"\nTraining failed with error: {e}")
