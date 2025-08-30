@@ -12,7 +12,14 @@ Usage:
 import os
 import json
 from pathlib import Path
+
+# Disable MLflow before importing ultralytics
+os.environ['MLFLOW_TRACKING_URI'] = ''
+os.environ['DISABLE_MLFLOW'] = '1'
+os.environ['ULTRALYTICS_DISABLE_MLFLOW'] = '1'
+
 from ultralytics import RTDETR
+import ultralytics.utils
 
 # ===== Configuration =====
 # Update this to point to your MTMMC dataset
@@ -176,8 +183,13 @@ def main():
     print(f"Batch size: {BATCH_SIZE}")
     print(f"Image size: {IMAGE_SIZE}")
     
-    # Disable MLflow to avoid Windows path issues
-    os.environ['MLFLOW_TRACKING_URI'] = ''
+    # Additional MLflow disabling (already set at import time)
+    try:
+        ultralytics.utils.SETTINGS['mlflow'] = False
+        ultralytics.utils.SETTINGS['comet'] = False
+        ultralytics.utils.SETTINGS['wandb'] = False
+    except:
+        pass  # Settings might not be available
     
     try:
         results = model.train(
