@@ -76,8 +76,13 @@ def create_ultralytics_dataset_config(
         dir_path.mkdir(parents=True, exist_ok=True)
     
     def convert_dataset_to_yolo(dataset: MTMMCDetectionDataset, images_dir: Path, labels_dir: Path):
-        """Convert dataset to YOLO format"""
+        """Convert dataset to YOLO format with proper coordinate validation"""
         logger.info(f"Converting {len(dataset)} samples to YOLO format...")
+        
+        valid_samples = 0
+        invalid_samples = 0
+        total_boxes = 0
+        valid_boxes = 0
         
         for idx in range(len(dataset)):
             # Get the image path and annotations directly from samples_split
@@ -97,23 +102,77 @@ def create_ultralytics_dataset_config(
                 from PIL import Image
                 with Image.open(image_path) as img:
                     img_width, img_height = img.size
-            except:
-                # Fallback to standard resolution if image can't be opened
-                img_width, img_height = 1920, 1080
+            except Exception as e:
+                logger.warning(f"Could not read image {image_path}: {e}")
+                # Skip this image if we can't read dimensions
+                invalid_samples += 1
+                continue
             
+            valid_annotations = []
             with open(label_path, 'w') as f:
                 # annotations is List[Tuple[int, float, float, float, float]]
                 # Each tuple: (obj_id, center_x, center_y, bb_width, bb_height)
                 for obj_id, center_x, center_y, bb_width, bb_height in annotations:
-                    # Convert to YOLO format: class_id center_x center_y width height (normalized)
-                    # Normalize coordinates
-                    norm_center_x = center_x / img_width
-                    norm_center_y = center_y / img_height
-                    norm_width = bb_width / img_width
-                    norm_height = bb_height / img_height
+                    total_boxes += 1
                     
-                    # Class 0 for person (Ultralytics uses 0-based indexing)
-                    f.write(f"0 {norm_center_x:.6f} {norm_center_y:.6f} {norm_width:.6f} {norm_height:.6f}\n")
+                    # Validate that bounding box is within image bounds
+                    if (center_x < 0 or center_x >= img_width or 
+                        center_y < 0 or center_y >= img_height or
+                        bb_width <= 0 or bb_height <= 0):
+                        logger.debug(f"Invalid box in {image_path}: center=({center_x}, {center_y}), size=({bb_width}, {bb_height}), img_size=({img_width}, {img_height})")
+                        continue
+                    
+                    # Check if box extends beyond image bounds
+                    left = center_x - bb_width / 2
+                    right = center_x + bb_width / 2
+                    top = center_y - bb_height / 2
+                    bottom = center_y + bb_height / 2
+                    
+                    # Clip to image bounds
+                    left = max(0, left)
+                    right = min(img_width, right)
+                    top = max(0, top)
+                    bottom = min(img_height, bottom)
+                    
+                    # Recalculate clipped center and dimensions
+                    clipped_width = right - left
+                    clipped_height = bottom - top
+                    clipped_center_x = left + clipped_width / 2
+                    clipped_center_y = top + clipped_height / 2
+                    
+                    # Skip if clipping made box too small (use smaller threshold for edge cases)
+                    if clipped_width < 0.1 or clipped_height < 0.1:
+                        logger.debug(f"Box too small after clipping in {image_path}")
+                        continue
+                    
+                    # Normalize coordinates to [0, 1]
+                    norm_center_x = clipped_center_x / img_width
+                    norm_center_y = clipped_center_y / img_height
+                    norm_width = clipped_width / img_width
+                    norm_height = clipped_height / img_height
+                    
+                    # Final validation - ensure all values are in [0, 1]
+                    if (0 <= norm_center_x <= 1 and 0 <= norm_center_y <= 1 and
+                        0 < norm_width <= 1 and 0 < norm_height <= 1):
+                        # Class 0 for person (Ultralytics uses 0-based indexing)
+                        f.write(f"0 {norm_center_x:.6f} {norm_center_y:.6f} {norm_width:.6f} {norm_height:.6f}
+")
+                        valid_boxes += 1
+                        valid_annotations.append((norm_center_x, norm_center_y, norm_width, norm_height))
+                    else:
+                        logger.debug(f"Invalid normalized coords in {image_path}: center=({norm_center_x:.6f}, {norm_center_y:.6f}), size=({norm_width:.6f}, {norm_height:.6f})")
+            
+            if valid_annotations:
+                valid_samples += 1
+            else:
+                invalid_samples += 1
+                logger.debug(f"No valid annotations for {image_path}")
+        
+        logger.info(f"YOLO conversion complete: {valid_samples} valid samples, {invalid_samples} invalid samples")
+        logger.info(f"Box statistics: {valid_boxes}/{total_boxes} valid boxes ({100*valid_boxes/max(total_boxes,1):.1f}%)")
+        
+        if valid_samples == 0:
+            raise ValueError("No valid samples found after YOLO conversion. Check your dataset and coordinate format.")
     
     # Convert datasets
     convert_dataset_to_yolo(train_dataset, train_images_dir, train_labels_dir)
@@ -261,11 +320,11 @@ def run_rtdetr_training_job(
             'cos_lr': training_config.get('cos_lr', False),
             'close_mosaic': training_config.get('close_mosaic', 10),
             'resume': training_config.get('resume', False),
-            'amp': training_config.get('amp', True),
+            'amp': training_config.get('amp', False),  # Disable mixed precision for stability
             'fraction': training_config.get('fraction', 1.0),
             'profile': training_config.get('profile', False),
             'freeze': training_config.get('freeze', None),
-            'lr0': training_config.get('lr0', 0.01),
+            'lr0': training_config.get('lr0', 0.001),  # Lower initial learning rate for stability
             'lrf': training_config.get('lrf', 0.01),
             'momentum': training_config.get('momentum', 0.937),
             'weight_decay': training_config.get('weight_decay', 0.0005),

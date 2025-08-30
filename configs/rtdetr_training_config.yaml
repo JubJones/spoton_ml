@@ -38,10 +38,10 @@ models_to_train:
       engine: "ultralytics"
       epochs: 100
       batch_size: 4
-      learning_rate: 0.001
+      learning_rate: 0.001  # Base learning rate (overridden by lr0 in Ultralytics)
       # RT-DETR specific parameters for Ultralytics
       imgsz: 640 # Image size for training
-      patience: 50 # Early stopping patience
+      patience: 20 # FIXED: Reduced from 50 to catch instability earlier
       save_period: 10 # Save checkpoint every N epochs
       cache: false # Cache images to RAM/disk for faster training
       device: null # Will use the device from environment config
@@ -63,14 +63,18 @@ models_to_train:
       fraction: 1.0 # Dataset fraction to train/val/test on
       profile: false # Profile ONNX and TensorRT speeds during training for best inference speed
       freeze: null # Freeze layers: backbone=10, first3=0:3, etc
-      # Learning rate scheduler
-      lr0: 0.01 # Initial learning rate
-      lrf: 0.01 # Final learning rate (lr0 * lrf)
+      
+      # STABILITY FIXES: Learning rate scheduler
+      lr0: 0.001 # FIXED: Reduced from 0.01 (was 10x too high causing NaN losses!)
+      lrf: 0.01 # Final learning rate (lr0 * lrf) = 0.00001 final LR
       momentum: 0.937 # SGD momentum/Adam beta1
       weight_decay: 0.0005 # Optimizer weight decay 5e-4
-      warmup_epochs: 3.0 # Warmup epochs (fractions ok)
+      warmup_epochs: 5.0 # FIXED: Increased from 3.0 for more stability
       warmup_momentum: 0.8 # Warmup initial momentum
       warmup_bias_lr: 0.1 # Warmup initial bias lr
+      
+      # Additional stability parameters
+      max_grad_norm: 10.0 # Gradient clipping to prevent explosions
       box: 7.5 # Box loss gain
       cls: 0.5 # Cls loss gain (used with pixels and ratio)
       dfl: 1.5 # DFL loss gain
