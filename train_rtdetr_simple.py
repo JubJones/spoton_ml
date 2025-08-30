@@ -39,7 +39,7 @@ def create_coco_format_data():
     print("Creating COCO format dataset...")
     
     base_path = Path(BASE_PATH)
-    train_path = base_path / "train" / "train" / SCENE_ID
+    train_path = base_path / "train" / SCENE_ID
     
     if not train_path.exists():
         print(f"Error: Dataset path not found: {train_path}")
