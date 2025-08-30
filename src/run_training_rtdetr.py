@@ -227,7 +227,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
     
     run_id = active_run.info.run_id
     job_status = "FAILED"
-    final_metrics = None
+    final_metrics = {}
     
     logger.info(f"--- Starting RT-DETR Training Job (Run ID: {run_id}) ---")
     
@@ -281,26 +281,96 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         logger.info(f"Batch size: {batch_size}")
         logger.info(f"Image size: {image_size}")
         
-        results = model.train(
-            data=str(dataset_yaml),
-            epochs=epochs,
-            batch=batch_size,
-            imgsz=image_size,
-            device=device,
-            project=str(output_dir),
-            name="rtdetr_experiment",
-            save=True,
-            plots=True,
-            val=True,
-            cache=False,
-            workers=4,
-            patience=50,
-            lr0=0.001,
-            weight_decay=0.0005,
-            warmup_epochs=3,
-            amp=True,
-            half=False,
-        )
+        # Extract all training parameters from config for comprehensive augmentation support
+        training_params = {
+            # Core training parameters
+            'data': str(dataset_yaml),
+            'epochs': epochs,
+            'batch': batch_size,
+            'imgsz': training_config.get('imgsz', image_size),
+            'device': device,
+            'project': str(output_dir),
+            'name': training_config.get('name', 'rtdetr_experiment'),
+            'save': training_config.get('save', True),
+            'plots': training_config.get('plots', True),
+            'val': training_config.get('val', True),
+            'cache': training_config.get('cache', False),
+            'workers': training_config.get('workers', 4),
+            'patience': training_config.get('patience', 50),
+            'amp': training_config.get('amp', True),
+            'half': training_config.get('half', False),
+            
+            # Learning rate and optimization
+            'lr0': training_config.get('lr0', 0.001),
+            'lrf': training_config.get('lrf', 0.01),
+            'momentum': training_config.get('momentum', 0.937),
+            'weight_decay': training_config.get('weight_decay', 0.0005),
+            'warmup_epochs': training_config.get('warmup_epochs', 3.0),
+            'warmup_momentum': training_config.get('warmup_momentum', 0.8),
+            'warmup_bias_lr': training_config.get('warmup_bias_lr', 0.1),
+            
+            # Loss function parameters
+            'box': training_config.get('box', 7.5),
+            'cls': training_config.get('cls', 0.5),
+            'dfl': training_config.get('dfl', 1.5),
+            'label_smoothing': training_config.get('label_smoothing', 0.0),
+            
+            # Color space augmentations
+            'hsv_h': training_config.get('hsv_h', 0.015),
+            'hsv_s': training_config.get('hsv_s', 0.7),
+            'hsv_v': training_config.get('hsv_v', 0.4),
+            
+            # Geometric augmentations
+            'degrees': training_config.get('degrees', 0.0),
+            'translate': training_config.get('translate', 0.1),
+            'scale': training_config.get('scale', 0.5),
+            'shear': training_config.get('shear', 0.0),
+            'perspective': training_config.get('perspective', 0.0),
+            
+            # Flip augmentations
+            'flipud': training_config.get('flipud', 0.0),
+            'fliplr': training_config.get('fliplr', 0.5),
+            
+            # Advanced composition augmentations
+            'mosaic': training_config.get('mosaic', 1.0),
+            'mixup': training_config.get('mixup', 0.0),
+            'copy_paste': training_config.get('copy_paste', 0.0),
+            
+            # Advanced augmentation parameters
+            'cutmix': training_config.get('cutmix', 0.0),
+            'erasing': training_config.get('erasing', 0.0),
+            'auto_augment': training_config.get('auto_augment', None),
+            
+            # Training strategies
+            'multi_scale': training_config.get('multi_scale', False),
+            'rect': training_config.get('rect', False),
+            'cos_lr': training_config.get('cos_lr', False),
+            'close_mosaic': training_config.get('close_mosaic', 10),
+            
+            # Other training parameters
+            'optimizer': training_config.get('optimizer', 'AdamW'),
+            'verbose': training_config.get('verbose', True),
+            'seed': training_config.get('seed', 42),
+            'deterministic': training_config.get('deterministic', True),
+            'single_cls': training_config.get('single_cls', True),
+            'resume': training_config.get('resume', False),
+            'exist_ok': training_config.get('exist_ok', True),
+            'pretrained': training_config.get('pretrained', True),
+            'fraction': training_config.get('fraction', 1.0),
+            'profile': training_config.get('profile', False),
+            'freeze': training_config.get('freeze', None),
+        }
+        
+        # Remove None values to avoid issues
+        training_params = {k: v for k, v in training_params.items() if v is not None}
+        
+        logger.info("Enhanced training with complex augmentations:")
+        logger.info(f"  Color augmentations: HSV-H={training_params.get('hsv_h')}, HSV-S={training_params.get('hsv_s')}, HSV-V={training_params.get('hsv_v')}")
+        logger.info(f"  Geometric augmentations: Rotation={training_params.get('degrees')}°, Scale={training_params.get('scale')}, Shear={training_params.get('shear')}°")
+        logger.info(f"  Composition augmentations: Mosaic={training_params.get('mosaic')}, Mixup={training_params.get('mixup')}, CutMix={training_params.get('cutmix')}")
+        logger.info(f"  Advanced features: Multi-scale={training_params.get('multi_scale')}, Auto-augment={training_params.get('auto_augment')}")
+        
+        results = model.train(**training_params)
         
         # Log training results
         if hasattr(results, 'maps') and len(results.maps) > 0:
