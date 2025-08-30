@@ -109,11 +109,22 @@ def create_coco_format_data():
                 with open(label_file, 'w') as f:
                     for obj_id, x, y, w, h in gt_data[frame_id]:
                         # Convert to YOLO format (normalized center coordinates)
+                        # x,y are top-left coordinates, need to convert to center
                         center_x = (x + w/2) / img_width
                         center_y = (y + h/2) / img_height
                         norm_w = w / img_width
                         norm_h = h / img_height
                         
+                        # Clip coordinates to valid range [0, 1]
+                        center_x = max(0.0, min(1.0, center_x))
+                        center_y = max(0.0, min(1.0, center_y))
+                        norm_w = max(0.0, min(1.0, norm_w))
+                        norm_h = max(0.0, min(1.0, norm_h))
+                        
+                        # Skip invalid boxes
+                        if norm_w <= 0 or norm_h <= 0:
+                            continue
+                            
                         # Class 0 for person
                         f.write(f"0 {center_x:.6f} {center_y:.6f} {norm_w:.6f} {norm_h:.6f}\n")
             
@@ -164,6 +175,9 @@ def main():
     print(f"Device: {DEVICE}")
     print(f"Batch size: {BATCH_SIZE}")
     print(f"Image size: {IMAGE_SIZE}")
+    
+    # Disable MLflow to avoid Windows path issues
+    os.environ['MLFLOW_TRACKING_URI'] = ''
     
     try:
         results = model.train(
