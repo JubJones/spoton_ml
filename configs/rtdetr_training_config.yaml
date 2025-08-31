@@ -36,7 +36,7 @@ models_to_train:
       
     training:
       engine: "ultralytics"
-      epochs: 100
+      epochs: 2
       batch_size: 4
       learning_rate: 0.001  # Base learning rate (overridden by lr0 in Ultralytics)
       # RT-DETR specific parameters for Ultralytics

@@ -227,7 +227,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
     
     run_id = active_run.info.run_id
     job_status = "FAILED"
-    final_metrics = {}
+    final_metrics = {"status": "initialized"}
     
     logger.info(f"--- Starting RT-DETR Training Job (Run ID: {run_id}) ---")
     
@@ -370,9 +370,132 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         logger.info(f"  Composition augmentations: Mosaic={training_params.get('mosaic')}, Mixup={training_params.get('mixup')}, CutMix={training_params.get('cutmix')}")
         logger.info(f"  Advanced features: Multi-scale={training_params.get('multi_scale')}, Auto-augment={training_params.get('auto_augment')}")
         
+        # Add training callback to log metrics per epoch (like FasterRCNN)
+        class MLflowCallback:
+            """Custom callback to log training metrics to MLflow like FasterRCNN training"""
+            def __init__(self, run_id):
+                self.run_id = run_id
+                self.best_map = -1.0
+                self.best_epoch = -1
+                self.epoch_times = []
+                
+            def on_train_epoch_start(self, trainer):
+                """Track epoch start time"""
+                import time
+                self.epoch_start_time = time.time()
+                logger.info(f"Starting epoch {trainer.epoch if hasattr(trainer, 'epoch') and trainer.epoch is not None else 'N/A'}")
+                
+            def on_train_epoch_end(self, trainer):
+                """Log epoch metrics similar to PyTorch FasterRCNN training"""
+                if trainer.epoch is not None:
+                    # Log epoch duration (similar to FasterRCNN epoch timing)
+                    if hasattr(self, 'epoch_start_time'):
+                        epoch_duration = time.time() - self.epoch_start_time
+                        self.epoch_times.append(epoch_duration)
+                        mlflow.log_metric("epoch_duration_seconds", epoch_duration, step=trainer.epoch)
+                        mlflow.log_metric("avg_epoch_duration_seconds", sum(self.epoch_times) / len(self.epoch_times), step=trainer.epoch)
+                    
+                    # Log basic training metrics
+                    if hasattr(trainer, 'loss_items') and trainer.loss_items is not None:
+                        # Log training losses (similar to avg_train_loss, avg_train_comp_losses)
+                        total_loss = float(trainer.loss_items.mean()) if hasattr(trainer.loss_items, 'mean') else float(sum(trainer.loss_items) / len(trainer.loss_items))
+                        mlflow.log_metric("epoch_train_loss_avg", total_loss, step=trainer.epoch)
+                        
+                        # Log component losses if available (mimicking FasterRCNN component losses)
+                        if len(trainer.loss_items) >= 3:  # Typical RT-DETR losses: box, cls, dfl
+                            mlflow.log_metric("epoch_train_loss_box", float(trainer.loss_items[0]), step=trainer.epoch)
+                            mlflow.log_metric("epoch_train_loss_cls", float(trainer.loss_items[1]), step=trainer.epoch)
+                            mlflow.log_metric("epoch_train_loss_dfl", float(trainer.loss_items[2]), step=trainer.epoch)
+                            
+                            # Additional RT-DETR specific losses if available
+                            if len(trainer.loss_items) >= 4:
+                                mlflow.log_metric("epoch_train_loss_additional", float(trainer.loss_items[3]), step=trainer.epoch)
+                    
+                    # Log learning rate (similar to FasterRCNN)
+                    if hasattr(trainer.optimizer, 'param_groups') and trainer.optimizer.param_groups:
+                        current_lr = trainer.optimizer.param_groups[0]['lr']
+                        mlflow.log_metric("learning_rate", current_lr, step=trainer.epoch)
+                        
+                        # Log momentum if available (similar to FasterRCNN optimizer tracking)
+                        if 'momentum' in trainer.optimizer.param_groups[0]:
+                            momentum = trainer.optimizer.param_groups[0]['momentum']
+                            mlflow.log_metric("momentum", momentum, step=trainer.epoch)
+                        elif 'betas' in trainer.optimizer.param_groups[0]:  # For Adam-like optimizers
+                            beta1 = trainer.optimizer.param_groups[0]['betas'][0]
+                            mlflow.log_metric("beta1", beta1, step=trainer.epoch)
+                    
+                    # Log GPU memory usage if available
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
+                            memory_reserved = torch.cuda.memory_reserved() / 1024**3  # GB
+                            mlflow.log_metric("gpu_memory_allocated_gb", memory_allocated, step=trainer.epoch)
+                            mlflow.log_metric("gpu_memory_reserved_gb", memory_reserved, step=trainer.epoch)
+                    except Exception:
+                        pass  # Ignore if CUDA not available
+            
+            def on_val_end(self, validator):
+                """Log validation metrics similar to FasterRCNN eval_metrics"""
+                if validator.metrics and hasattr(validator, 'trainer') and validator.trainer.epoch is not None:
+                    metrics = validator.metrics.results_dict
+                    epoch = validator.trainer.epoch
+                    
+                    # Log validation metrics (similar to eval_metrics in FasterRCNN)
+                    for key, value in metrics.items():
+                        if isinstance(value, (int, float)) and not str(key).startswith('_'):
+                            # Map RT-DETR metric names to consistent naming (like FasterRCNN eval_metrics)
+                            if 'mAP50-95' in key:
+                                mlflow.log_metric("eval_map_50_95", float(value), step=epoch)
+                            elif 'mAP50' in key and 'mAP50-95' not in key:
+                                mlflow.log_metric("eval_map_50", float(value), step=epoch)
+                            elif 'precision' in key.lower():
+                                mlflow.log_metric("eval_precision", float(value), step=epoch)
+                            elif 'recall' in key.lower():
+                                mlflow.log_metric("eval_recall", float(value), step=epoch)
+                            elif 'f1' in key.lower():
+                                mlflow.log_metric("eval_f1_score", float(value), step=epoch)
+                            else:
+                                # Generic metric mapping
+                                metric_name = key.lower().replace('(b)', '').replace('metrics/', 'eval_').replace(' ', '_')
+                                mlflow.log_metric(f"epoch_{metric_name}", float(value), step=epoch)
+                    
+                    # Track best model (similar to best_metric_value in FasterRCNN)
+                    current_map = metrics.get('metrics/mAP50-95(B)', -1.0)
+                    if current_map > self.best_map:
+                        self.best_map = current_map
+                        self.best_epoch = epoch
+                        mlflow.set_tag("best_map_50_95", f"{self.best_map:.4f}")
+                        mlflow.set_tag("best_epoch", str(self.best_epoch))
+                        logger.info(f"New best mAP@0.5:0.95: {self.best_map:.4f} at epoch {self.best_epoch}")
+                        
+                        # Log additional best metrics (similar to FasterRCNN best model tracking)
+                        for key, value in metrics.items():
+                            if isinstance(value, (int, float)) and 'precision' in key.lower():
+                                mlflow.set_tag("best_precision", f"{float(value):.4f}")
+                            elif isinstance(value, (int, float)) and 'recall' in key.lower():
+                                mlflow.set_tag("best_recall", f"{float(value):.4f}")
+                    
+                    # Log validation loss if available (similar to avg_val_loss in FasterRCNN)
+                    if hasattr(validator, 'loss') and validator.loss is not None:
+                        mlflow.log_metric("epoch_val_loss_avg", float(validator.loss), step=epoch)
+        
+        # Setup MLflow callback
+        callback = MLflowCallback(run_id)
+        
+        # Add callback to training parameters
+        training_params['callbacks'] = [callback]
+        
+        logger.info("Starting RT-DETR training with MLflow logging (similar to FasterRCNN)...")
+        start_time_training = time.time()
+        
         results = model.train(**training_params)
         
-        # Log training results
+        training_duration = time.time() - start_time_training
+        logger.info(f"--- RT-DETR Training Finished in {training_duration:.2f} seconds ---")
+        mlflow.log_metric("training_duration_seconds", training_duration)
+        
+        # Log final training results (enhanced like FasterRCNN)
         if hasattr(results, 'maps') and len(results.maps) > 0:
             if len(results.maps) >= 2:
                 mlflow.log_metric("final_map_50", results.maps[0])
@@ -386,16 +509,67 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                 logger.info(f"Final mAP@0.5:0.95: {results.maps[0]:.4f}")
                 final_metrics = {"map_50_95": results.maps[0]}
         
-        # Log artifacts
+        # Enhanced checkpoint and artifact logging (similar to FasterRCNN)
         experiment_dir = output_dir / "rtdetr_experiment"
+        checkpoint_dir = project_root / "checkpoints" / "rtdetr" / run_id
+        
+        # Log best model parameters
+        if callback.best_epoch >= 0:
+            mlflow.log_param("best_model_epoch", callback.best_epoch)
+            mlflow.log_param("best_model_map_50_95", f"{callback.best_map:.4f}")
+        
         if experiment_dir.exists():
-            logger.info("Logging training artifacts...")
+            logger.info("Logging comprehensive RT-DETR training artifacts...")
+            
+            # Create checkpoint directory structure (like FasterRCNN)
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Log model checkpoints with structured paths
+            weights_dir = experiment_dir / "weights"
+            if weights_dir.exists():
+                best_pt = weights_dir / "best.pt"
+                last_pt = weights_dir / "last.pt"
+                
+                # Log best model checkpoint (similar to best_model_path in FasterRCNN)
+                if best_pt.exists():
+                    logger.info(f"Logging best model checkpoint: {best_pt.name}")
+                    mlflow.log_artifact(str(best_pt), artifact_path="checkpoints")
+                    
+                    # Copy to structured checkpoint dir (like FasterRCNN)
+                    best_checkpoint_path = checkpoint_dir / f"ckpt_best_map_50_95.pt"
+                    import shutil
+                    shutil.copy2(best_pt, best_checkpoint_path)
+                
+                # Log latest model checkpoint (similar to latest_path in FasterRCNN)
+                if last_pt.exists():
+                    mlflow.log_artifact(str(last_pt), artifact_path="checkpoints/latest")
+                    
+                    # Copy to structured checkpoint dir
+                    latest_checkpoint_path = checkpoint_dir / f"ckpt_latest.pt"
+                    shutil.copy2(last_pt, latest_checkpoint_path)
+            
+            # Log training plots and results (organized like FasterRCNN)
             for artifact_file in experiment_dir.rglob("*"):
-                if artifact_file.is_file() and artifact_file.suffix in ['.pt', '.png', '.jpg', '.yaml']:
+                if artifact_file.is_file():
+                    
+                    # Organize artifacts by type (similar to FasterRCNN structure)
+                    if artifact_file.suffix == '.pt':
+                        artifact_path = "checkpoints"
+                    elif artifact_file.suffix in ['.png', '.jpg']:
+                        artifact_path = "plots"
+                    elif artifact_file.suffix in ['.yaml', '.yml']:
+                        artifact_path = "config"
+                    elif artifact_file.suffix == '.csv':
+                        artifact_path = "metrics"
+                    else:
+                        artifact_path = "training_results"
+                    
                     try:
-                        mlflow.log_artifact(str(artifact_file), artifact_path="training_results")
+                        mlflow.log_artifact(str(artifact_file), artifact_path=artifact_path)
                     except Exception as e:
                         logger.warning(f"Could not log artifact {artifact_file}: {e}")
+            
+            logger.info("All RT-DETR training artifacts logged successfully!")
         
         job_status = "FINISHED"
         logger.info("RT-DETR training completed successfully!")
