@@ -77,17 +77,17 @@ def get_best_device():
         import torch
         if torch.cuda.is_available():
             gpu_count = torch.cuda.device_count()
-            logger.info(f"🔥 CUDA available! Found {gpu_count} GPU(s)")
+            logger.info(f"CUDA available! Found {gpu_count} GPU(s)")
             for i in range(gpu_count):
                 gpu_name = torch.cuda.get_device_name(i)
                 gpu_memory = torch.cuda.get_device_properties(i).total_memory / (1024**3)
                 logger.info(f"   GPU {i}: {gpu_name} ({gpu_memory:.1f} GB)")
             return "0"  # Use first GPU
         else:
-            logger.warning("⚠️  CUDA not available, falling back to CPU")
+            logger.warning("CUDA not available, falling back to CPU")
             return "cpu"
     except ImportError:
-        logger.warning("⚠️  PyTorch not available for device detection, using default")
+        logger.warning("PyTorch not available for device detection, using default")
         return "0"
 
 
@@ -118,8 +118,8 @@ def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
     total_scenes = len(scenes_to_include)
     total_cameras = sum(len(scene.get("camera_ids", [])) for scene in scenes_to_include)
     
-    logger.info(f"🎯 Processing {total_scenes} scenes with {total_cameras} total cameras")
-    logger.info(f"📊 Data subset: {'enabled' if use_data_subset else 'disabled'} ({data_subset_fraction if use_data_subset else 1.0:.1%})")
+    logger.info(f"Processing {total_scenes} scenes with {total_cameras} total cameras")
+    logger.info(f"Data subset: {'enabled' if use_data_subset else 'disabled'} ({data_subset_fraction if use_data_subset else 1.0:.1%})")
     
     # Process each scene and its cameras
     for scene_idx, scene_config in enumerate(scenes_to_include):
@@ -135,7 +135,7 @@ def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
             logger.warning(f"Scene path not found: {scene_path}")
             continue
             
-        logger.info(f"📂 Processing scene {scene_id} ({scene_idx+1}/{total_scenes}) with {len(camera_ids)} cameras")
+        logger.info(f"Processing scene {scene_id} ({scene_idx+1}/{total_scenes}) with {len(camera_ids)} cameras")
         
         for camera_idx, camera_id in enumerate(camera_ids):
             camera_path = scene_path / camera_id
@@ -143,10 +143,10 @@ def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
             gt_path = camera_path / "gt" / "gt.txt"
             
             if not rgb_path.exists() or not gt_path.exists():
-                logger.warning(f"  📷 Skipping {scene_id}/{camera_id} - missing data")
+                logger.warning(f"  Skipping {scene_id}/{camera_id} - missing data")
                 continue
                 
-            logger.info(f"  📷 Processing {scene_id}/{camera_id} ({camera_idx+1}/{len(camera_ids)})")
+            logger.info(f"  Processing {scene_id}/{camera_id} ({camera_idx+1}/{len(camera_ids)})")
             
             # Read ground truth
             gt_data = {}
@@ -169,7 +169,7 @@ def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
             if use_data_subset:
                 subset_size = int(len(image_files) * data_subset_fraction)
                 image_files = image_files[:subset_size]
-                logger.info(f"    📊 Using {subset_size}/{len(sorted([f for f in rgb_path.glob('*.jpg')]))} images (subset: {data_subset_fraction:.1%})")
+                logger.info(f"    Using {subset_size}/{len(sorted([f for f in rgb_path.glob('*.jpg')]))} images (subset: {data_subset_fraction:.1%})")
             
             for img_file in image_files:
                 frame_id = int(img_file.stem)
@@ -214,14 +214,14 @@ def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
                 total_images += 1
                 
                 if total_images % 500 == 0:
-                    logger.info(f"    📊 Processed {total_images} images across all cameras...")
+                    logger.info(f"    Processed {total_images} images across all cameras...")
             
-            logger.info(f"  ✅ Completed {scene_id}/{camera_id}: {len(image_files)} images processed")
+            logger.info(f"  Completed {scene_id}/{camera_id}: {len(image_files)} images processed")
 
-    logger.info(f"🎉 Dataset creation complete!")
-    logger.info(f"   📊 Total images processed: {total_images}")
-    logger.info(f"   📂 Total scenes processed: {len([s for s in scenes_to_include if (train_base_path / s.get('scene_id', '')).exists()])}")
-    logger.info(f"   📷 Total cameras processed: {total_cameras}")
+    logger.info(f"Dataset creation complete!")
+    logger.info(f"   Total images processed: {total_images}")
+    logger.info(f"   Total scenes processed: {len([s for s in scenes_to_include if (train_base_path / s.get('scene_id', '')).exists()])}")
+    logger.info(f"   Total cameras processed: {total_cameras}")
     return images_dir, labels_dir
 
 
@@ -464,7 +464,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
             
             def on_val_end(self, validator):
                 """Log comprehensive validation metrics matching FasterRCNN implementation"""
-                logger.info(f"🔬 CALLBACK DEBUG: on_val_end triggered for epoch validation")
+                logger.info(f"CALLBACK DEBUG: on_val_end triggered for epoch validation")
                 logger.info(f"   - validator exists: {validator is not None}")
                 logger.info(f"   - validator.metrics exists: {hasattr(validator, 'metrics') and validator.metrics is not None}")
                 logger.info(f"   - validator.trainer exists: {hasattr(validator, 'trainer')}")
@@ -473,7 +473,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                     metrics = validator.metrics.results_dict
                     epoch = validator.trainer.epoch
                     
-                    logger.info(f"📊 Epoch {epoch} validation metrics available:")
+                    logger.info(f"Epoch {epoch} validation metrics available:")
                     logger.info(f"   - Total metrics keys: {len(metrics)}")
                     logger.info(f"   - Available metrics: {list(metrics.keys())}")
                     
@@ -575,11 +575,11 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                         mlflow.log_metric("epoch_val_loss_avg", float(validator.loss), step=epoch)
                     
                     # Debug summary of what was logged
-                    logger.info(f"✅ Epoch {epoch} metrics logging completed successfully!")
+                    logger.info(f"Epoch {epoch} metrics logging completed successfully!")
                     logger.info(f"   - Logged metrics for epoch {epoch}")
                     logger.info(f"   - Current best mAP@0.5:0.95: {self.best_map:.4f} (epoch {self.best_epoch})")
                 else:
-                    logger.warning(f"⚠️ CALLBACK DEBUG: Validation metrics not available")
+                    logger.warning(f"CALLBACK DEBUG: Validation metrics not available")
                     if not validator.metrics:
                         logger.warning("   - validator.metrics is None")
                     if not hasattr(validator, 'trainer'):
@@ -591,19 +591,19 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         callback = MLflowCallback(run_id)
         
         # Register callback with model instead of passing as parameter
-        logger.info("🔗 Registering MLflow callbacks with Ultralytics model...")
+        logger.info("Registering MLflow callbacks with Ultralytics model...")
         model.add_callback('on_train_epoch_start', callback.on_train_epoch_start)
         model.add_callback('on_train_epoch_end', callback.on_train_epoch_end)
         model.add_callback('on_val_end', callback.on_val_end)
         
         # Verify callback registration
         if hasattr(model, 'callbacks'):
-            logger.info(f"✅ Model callbacks registered: {list(model.callbacks.keys())}")
+            logger.info(f"Model callbacks registered: {list(model.callbacks.keys())}")
         else:
-            logger.warning("⚠️ Model.callbacks attribute not found - callback registration may have failed")
+            logger.warning("Model.callbacks attribute not found - callback registration may have failed")
         
         logger.info("Starting RT-DETR training with MLflow logging (similar to FasterRCNN)...")
-        logger.info("🚀 MLflow callbacks registered with Ultralytics model")
+        logger.info("MLflow callbacks registered with Ultralytics model")
         start_time_training = time.time()
         
         results = model.train(**training_params)
@@ -633,7 +633,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         checkpoint_dir = project_root / "checkpoints" / "rtdetr" / run_id
         
         # Debug logging for path verification
-        logger.info(f"🔍 DEBUG: Checking artifact paths...")
+        logger.info(f"DEBUG: Checking artifact paths...")
         logger.info(f"   Output dir: {output_dir}")
         logger.info(f"   Experiment name: {experiment_name}")
         logger.info(f"   Experiment dir: {experiment_dir}")
@@ -646,10 +646,10 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         
         # Enhanced directory discovery and debugging
         if experiment_dir.exists():
-            logger.info("✅ Experiment directory found! Logging comprehensive RT-DETR training artifacts...")
+            logger.info("Experiment directory found! Logging comprehensive RT-DETR training artifacts...")
             
             # List all contents for debugging
-            logger.info(f"📂 Experiment directory contents:")
+            logger.info(f"Experiment directory contents:")
             for item in experiment_dir.iterdir():
                 logger.info(f"   - {item.name} ({'dir' if item.is_dir() else 'file'})")
             
@@ -658,54 +658,54 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
             
             # Log model checkpoints with structured paths and extensive debugging
             weights_dir = experiment_dir / "weights"
-            logger.info(f"🎯 Checking weights directory: {weights_dir}")
+            logger.info(f"Checking weights directory: {weights_dir}")
             logger.info(f"   Weights dir exists: {weights_dir.exists()}")
             
             if weights_dir.exists():
-                logger.info("📦 Weights directory contents:")
+                logger.info("Weights directory contents:")
                 for weight_file in weights_dir.iterdir():
                     logger.info(f"   - {weight_file.name} ({weight_file.stat().st_size} bytes)")
                 
                 best_pt = weights_dir / "best.pt"
                 last_pt = weights_dir / "last.pt"
                 
-                logger.info(f"🏆 Best checkpoint: {best_pt} (exists: {best_pt.exists()})")
-                logger.info(f"📝 Last checkpoint: {last_pt} (exists: {last_pt.exists()})")
+                logger.info(f"Best checkpoint: {best_pt} (exists: {best_pt.exists()})")
+                logger.info(f"Last checkpoint: {last_pt} (exists: {last_pt.exists()})")
                 
                 # Log best model checkpoint (similar to best_model_path in FasterRCNN)
                 if best_pt.exists():
-                    logger.info(f"✅ Logging best model checkpoint: {best_pt.name} ({best_pt.stat().st_size} bytes)")
+                    logger.info(f"Logging best model checkpoint: {best_pt.name} ({best_pt.stat().st_size} bytes)")
                     mlflow.log_artifact(str(best_pt), artifact_path="checkpoints")
                     
                     # Copy to structured checkpoint dir (like FasterRCNN)
                     best_checkpoint_path = checkpoint_dir / f"ckpt_best_map_50_95.pt"
                     import shutil
                     shutil.copy2(best_pt, best_checkpoint_path)
-                    logger.info(f"📁 Copied best checkpoint to: {best_checkpoint_path}")
+                    logger.info(f"Copied best checkpoint to: {best_checkpoint_path}")
                 else:
-                    logger.warning(f"❌ Best checkpoint not found at: {best_pt}")
+                    logger.warning(f"Best checkpoint not found at: {best_pt}")
                 
                 # Log latest model checkpoint (similar to latest_path in FasterRCNN)
                 if last_pt.exists():
-                    logger.info(f"✅ Logging latest model checkpoint: {last_pt.name} ({last_pt.stat().st_size} bytes)")
+                    logger.info(f"Logging latest model checkpoint: {last_pt.name} ({last_pt.stat().st_size} bytes)")
                     mlflow.log_artifact(str(last_pt), artifact_path="checkpoints/latest")
                     
                     # Copy to structured checkpoint dir
                     latest_checkpoint_path = checkpoint_dir / f"ckpt_latest.pt"
                     shutil.copy2(last_pt, latest_checkpoint_path)
-                    logger.info(f"📁 Copied latest checkpoint to: {latest_checkpoint_path}")
+                    logger.info(f"Copied latest checkpoint to: {latest_checkpoint_path}")
                 else:
-                    logger.warning(f"❌ Latest checkpoint not found at: {last_pt}")
+                    logger.warning(f"Latest checkpoint not found at: {last_pt}")
             else:
-                logger.warning(f"❌ Weights directory not found at: {weights_dir}")
+                logger.warning(f"Weights directory not found at: {weights_dir}")
                 # Try to find weights in alternative locations
-                logger.info("🔍 Searching for weights in experiment directory...")
+                logger.info("Searching for weights in experiment directory...")
                 for pt_file in experiment_dir.rglob("*.pt"):
                     logger.info(f"   Found .pt file: {pt_file}")
             
             # Log training plots and results (organized like FasterRCNN)
             artifact_count = 0
-            logger.info("📊 Scanning for all artifacts...")
+            logger.info("Scanning for all artifacts...")
             for artifact_file in experiment_dir.rglob("*"):
                 if artifact_file.is_file():
                     
@@ -724,23 +724,23 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                     try:
                         mlflow.log_artifact(str(artifact_file), artifact_path=artifact_path)
                         artifact_count += 1
-                        logger.debug(f"   ✅ Logged: {artifact_file.name} → {artifact_path}")
+                        logger.debug(f"   Logged: {artifact_file.name} → {artifact_path}")
                     except Exception as e:
-                        logger.warning(f"❌ Could not log artifact {artifact_file}: {e}")
+                        logger.warning(f"Could not log artifact {artifact_file}: {e}")
             
-            logger.info(f"🎉 All RT-DETR training artifacts logged successfully! ({artifact_count} files)")
+            logger.info(f"All RT-DETR training artifacts logged successfully! ({artifact_count} files)")
         else:
-            logger.error(f"❌ Experiment directory not found: {experiment_dir}")
+            logger.error(f"Experiment directory not found: {experiment_dir}")
             # Try to find where Ultralytics actually created the outputs
-            logger.info("🔍 Searching for Ultralytics outputs in output directory...")
+            logger.info("Searching for Ultralytics outputs in output directory...")
             if output_dir.exists():
                 for item in output_dir.rglob("*"):
                     if item.is_dir() and item.name != experiment_name:
                         logger.info(f"   Found directory: {item}")
                         if (item / "weights").exists():
-                            logger.info(f"   🎯 Found weights directory in: {item}")
+                            logger.info(f"   Found weights directory in: {item}")
             else:
-                logger.error(f"❌ Output directory not found: {output_dir}")
+                logger.error(f"Output directory not found: {output_dir}")
         
         job_status = "FINISHED"
         logger.info("RT-DETR training completed successfully!")
