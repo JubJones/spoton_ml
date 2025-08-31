@@ -56,17 +56,17 @@ models_to_train:
     training:
       engine: "ultralytics"
       epochs: 50  # Reasonable epochs for factory environment
-      batch_size: 8  # Adjust based on GPU memory
+      batch_size: 2  # Reduced for memory optimization
       learning_rate: 0.001  # Base learning rate for new training
       fine_tune_lr: 0.0001  # Lower LR when using pretrained_weights
       
       # RT-DETR specific parameters for FACTORY optimization
-      imgsz: 640 # Image size for training
+      imgsz: 640 # Reduced image size for memory optimization
       patience: 20 # Early stopping patience for single environment
       save_period: 5 # Save checkpoints every 5 epochs
-      cache: true # Enable caching for faster training
+      cache: false # Disable caching to save memory
       device: null # Will use the device from environment config
-      workers: 8 # Data loading workers
+      workers: 2 # Reduced workers for memory optimization
       project: "checkpoints" # Project directory for saving runs
       name: "rtdetr_factory" # Run name for saving checkpoints
       exist_ok: true # Overwrite existing project/name
