@@ -9,17 +9,23 @@ data:
   # base_path: "/Volumes/HDD/MTMMC"
   base_path: "D:/MTMMC" # Adjust to your dataset location
   # Define scenes and cameras to USE for this entire comparison run
-  # The dataset loader will combine data from these sources.
+  # FULL DATASET CONFIGURATION - All available scenes and cameras
   scenes_to_include:
+    # Factory scenes
+    - scene_id: "s01"
+      camera_ids: ["c01", "c02", "c03", "c04", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
     - scene_id: "s10" # Factory
-      camera_ids: ["c09", "c12", "c13", "c16"] # Use all cameras from the scene
+      camera_ids: ["c01", "c02", "c03", "c04", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
+    
+    # Campus scenes  
+    - scene_id: "s14"
+      camera_ids: ["c01", "c02", "c03", "c04", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
     - scene_id: "s47" # Campus
-      camera_ids: ["c01", "c02", "c03", "c05"] # Use all cameras from the scene
+      camera_ids: ["c01", "c02", "c03", "c04", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
 
-  # Data subsetting for faster runs/debugging
-  use_data_subset: true # Set to false to use all data
-  data_subset_fraction: 0.1
-  # Use 10% of the data if use_data_subset is true
+  # Data subsetting for production training - DISABLED for full dataset
+  use_data_subset: false # CHANGED: Set to false to use ALL data
+  data_subset_fraction: 1.0  # Full dataset when use_data_subset is false
 
   # Train/Val split
   val_split_ratio: 0.2 # Proportion of (sub)set to use for validation
@@ -36,16 +42,16 @@ models_to_train:
       
     training:
       engine: "ultralytics"
-      epochs: 2
-      batch_size: 4
+      epochs: 100  # PRODUCTION: Increased from 2 to 100 for serious training
+      batch_size: 8  # PRODUCTION: Increased from 4 to 8 for better convergence (adjust based on GPU memory)
       learning_rate: 0.001  # Base learning rate (overridden by lr0 in Ultralytics)
-      # RT-DETR specific parameters for Ultralytics
+      # RT-DETR specific parameters for Ultralytics - PRODUCTION OPTIMIZED
       imgsz: 640 # Image size for training
-      patience: 20 # FIXED: Reduced from 50 to catch instability earlier
-      save_period: 10 # Save checkpoint every N epochs
-      cache: false # Cache images to RAM/disk for faster training
+      patience: 30 # PRODUCTION: Increased from 20 to 30 for full dataset training
+      save_period: 5 # PRODUCTION: Save checkpoints more frequently (every 5 epochs)
+      cache: true # PRODUCTION: Enable caching for faster training on large dataset
       device: null # Will use the device from environment config
-      workers: 2 # Number of worker threads for data loading (overrides data.num_workers)
+      workers: 8 # PRODUCTION: Increased from 2 to 8 for faster data loading
       project: "checkpoints" # Project directory for saving runs
       name: "rtdetr_run" # Run name for saving checkpoints
       exist_ok: true # Overwrite existing project/name
@@ -64,12 +70,12 @@ models_to_train:
       profile: false # Profile ONNX and TensorRT speeds during training for best inference speed
       freeze: null # Freeze layers: backbone=10, first3=0:3, etc
       
-      # STABILITY FIXES: Learning rate scheduler
-      lr0: 0.001 # FIXED: Reduced from 0.01 (was 10x too high causing NaN losses!)
+      # PRODUCTION LEARNING RATE SCHEDULER
+      lr0: 0.001 # PRODUCTION: Good stable learning rate for large dataset
       lrf: 0.01 # Final learning rate (lr0 * lrf) = 0.00001 final LR
       momentum: 0.937 # SGD momentum/Adam beta1
       weight_decay: 0.0005 # Optimizer weight decay 5e-4
-      warmup_epochs: 5.0 # FIXED: Increased from 3.0 for more stability
+      warmup_epochs: 10.0 # PRODUCTION: Increased to 10 for large dataset warmup
       warmup_momentum: 0.8 # Warmup initial momentum
       warmup_bias_lr: 0.1 # Warmup initial bias lr
       

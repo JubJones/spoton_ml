@@ -92,20 +92,19 @@ def get_best_device():
 
 
 def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
-    """Convert MTMMC data to COCO format for RT-DETR training"""
+    """Convert MTMMC data to COCO format for RT-DETR training - FIXED to handle multiple scenes"""
     logger.info("Creating COCO format dataset...")
     
     data_config = run_config.get("data", {})
     base_path = Path(data_config.get("base_path", DEFAULT_BASE_PATH))
-    environment = data_config.get("environment", DEFAULT_ENVIRONMENT)
-    scene_id = data_config.get("scene_id", DEFAULT_SCENE_ID)
-    camera_ids = data_config.get("camera_ids", DEFAULT_CAMERA_IDS)
-    max_frames = data_config.get("max_frames", DEFAULT_MAX_FRAMES)
+    scenes_to_include = data_config.get("scenes_to_include", [])
+    use_data_subset = data_config.get("use_data_subset", False)
+    data_subset_fraction = data_config.get("data_subset_fraction", 1.0)
     
-    train_path = base_path / "train" / scene_id
-    
-    if not train_path.exists():
-        error_msg = f"Dataset path not found: {train_path}"
+    # Validate base path
+    train_base_path = base_path / "train"
+    if not train_base_path.exists():
+        error_msg = f"Dataset train path not found: {train_base_path}"
         logger.error(error_msg)
         raise FileNotFoundError(error_msg)
     
@@ -115,86 +114,113 @@ def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
     images_dir.mkdir(exist_ok=True)
     labels_dir.mkdir(exist_ok=True)
     
-    image_id = 0
+    total_images = 0
+    total_scenes = len(scenes_to_include)
+    total_cameras = sum(len(scene.get("camera_ids", [])) for scene in scenes_to_include)
     
-    logger.info(f"Processing scene {scene_id} from {environment} environment...")
+    logger.info(f"🎯 Processing {total_scenes} scenes with {total_cameras} total cameras")
+    logger.info(f"📊 Data subset: {'enabled' if use_data_subset else 'disabled'} ({data_subset_fraction if use_data_subset else 1.0:.1%})")
     
-    for camera_id in camera_ids:
-        camera_path = train_path / camera_id
-        rgb_path = camera_path / "rgb"
-        gt_path = camera_path / "gt" / "gt.txt"
+    # Process each scene and its cameras
+    for scene_idx, scene_config in enumerate(scenes_to_include):
+        scene_id = scene_config.get("scene_id")
+        camera_ids = scene_config.get("camera_ids", [])
         
-        if not rgb_path.exists() or not gt_path.exists():
-            logger.warning(f"Skipping camera {camera_id} - missing data")
+        if not scene_id or not camera_ids:
+            logger.warning(f"Skipping invalid scene config: {scene_config}")
             continue
             
-        logger.info(f"Processing camera {camera_id}...")
+        scene_path = train_base_path / scene_id
+        if not scene_path.exists():
+            logger.warning(f"Scene path not found: {scene_path}")
+            continue
+            
+        logger.info(f"📂 Processing scene {scene_id} ({scene_idx+1}/{total_scenes}) with {len(camera_ids)} cameras")
         
-        # Read ground truth
-        gt_data = {}
-        with open(gt_path, 'r') as f:
-            for line in f:
-                parts = line.strip().split(',')
-                if len(parts) >= 6:
-                    frame_id = int(parts[0])
-                    obj_id = int(parts[1])
-                    x, y, w, h = map(float, parts[2:6])
-                    
-                    if frame_id not in gt_data:
-                        gt_data[frame_id] = []
-                    gt_data[frame_id].append((obj_id, x, y, w, h))
-        
-        # Process images
-        image_files = sorted([f for f in rgb_path.glob("*.jpg")])
-        if max_frames > 0:
-            image_files = image_files[:max_frames]
+            camera_path = scene_path / camera_id
+            rgb_path = camera_path / "rgb"
+            gt_path = camera_path / "gt" / "gt.txt"
             
-        for img_file in image_files:
-            frame_id = int(img_file.stem)
+            if not rgb_path.exists() or not gt_path.exists():
+                logger.warning(f"  📷 Skipping {scene_id}/{camera_id} - missing data")
+                continue
+                
+            logger.info(f"  📷 Processing {scene_id}/{camera_id} ({camera_idx+1}/{len(camera_ids)})")
             
-            # Copy image to output directory
-            new_img_name = f"{scene_id}_{camera_id}_{frame_id:06d}.jpg"
-            new_img_path = images_dir / new_img_name
-            
-            # Copy image file
-            import shutil
-            shutil.copy2(img_file, new_img_path)
-            
-            # Get image dimensions
-            from PIL import Image
-            with Image.open(img_file) as img:
-                img_width, img_height = img.size
-            
-            # Create YOLO format labels if annotations exist for this frame
-            if frame_id in gt_data:
-                label_file = labels_dir / f"{scene_id}_{camera_id}_{frame_id:06d}.txt"
-                with open(label_file, 'w') as f:
-                    for obj_id, x, y, w, h in gt_data[frame_id]:
-                        # Convert to YOLO format (normalized center coordinates)
-                        center_x = (x + w/2) / img_width
-                        center_y = (y + h/2) / img_height
-                        norm_w = w / img_width
-                        norm_h = h / img_height
+            # Read ground truth
+            gt_data = {}
+            with open(gt_path, 'r') as f:
+                for line in f:
+                    parts = line.strip().split(',')
+                    if len(parts) >= 6:
+                        frame_id = int(parts[0])
+                        obj_id = int(parts[1])  
+                        x, y, w, h = map(float, parts[2:6])
                         
-                        # Clip coordinates to valid range [0, 1]
-                        center_x = max(0.0, min(1.0, center_x))
-                        center_y = max(0.0, min(1.0, center_y))
-                        norm_w = max(0.0, min(1.0, norm_w))
-                        norm_h = max(0.0, min(1.0, norm_h))
-                        
-                        # Skip invalid boxes
-                        if norm_w <= 0 or norm_h <= 0:
-                            continue
+                        if frame_id not in gt_data:
+                            gt_data[frame_id] = []
+                        gt_data[frame_id].append((obj_id, x, y, w, h))
+            
+            # Process images with data subset support
+            image_files = sorted([f for f in rgb_path.glob("*.jpg")])
+            
+            # Apply data subsetting if enabled
+            if use_data_subset:
+                subset_size = int(len(image_files) * data_subset_fraction)
+                image_files = image_files[:subset_size]
+                logger.info(f"    📊 Using {subset_size}/{len(sorted([f for f in rgb_path.glob('*.jpg')]))} images (subset: {data_subset_fraction:.1%})")
+            
+            for img_file in image_files:
+                frame_id = int(img_file.stem)
+                
+                # Copy image to output directory
+                new_img_name = f"{scene_id}_{camera_id}_{frame_id:06d}.jpg"
+                new_img_path = images_dir / new_img_name
+                
+                # Copy image file
+                import shutil
+                shutil.copy2(img_file, new_img_path)
+                
+                # Get image dimensions
+                from PIL import Image
+                with Image.open(img_file) as img:
+                    img_width, img_height = img.size
+                
+                # Create YOLO format labels if annotations exist for this frame
+                if frame_id in gt_data:
+                    label_file = labels_dir / f"{scene_id}_{camera_id}_{frame_id:06d}.txt"
+                    with open(label_file, 'w') as f:
+                        for obj_id, x, y, w, h in gt_data[frame_id]:
+                            # Convert to YOLO format (normalized center coordinates)
+                            center_x = (x + w/2) / img_width
+                            center_y = (y + h/2) / img_height
+                            norm_w = w / img_width
+                            norm_h = h / img_height
                             
-                        # Class 0 for person
-                        f.write(f"0 {center_x:.6f} {center_y:.6f} {norm_w:.6f} {norm_h:.6f}\n")
+                            # Clip coordinates to valid range [0, 1]
+                            center_x = max(0.0, min(1.0, center_x))
+                            center_y = max(0.0, min(1.0, center_y))
+                            norm_w = max(0.0, min(1.0, norm_w))
+                            norm_h = max(0.0, min(1.0, norm_h))
+                            
+                            # Skip invalid boxes
+                            if norm_w <= 0 or norm_h <= 0:
+                                continue
+                            
+                            # Class 0 for person
+                            f.write(f"0 {center_x:.6f} {center_y:.6f} {norm_w:.6f} {norm_h:.6f}\n")
+                
+                total_images += 1
+                
+                if total_images % 500 == 0:
+                    logger.info(f"    📊 Processed {total_images} images across all cameras...")
             
-            image_id += 1
-            
-            if image_id % 100 == 0:
-                logger.info(f"Processed {image_id} images...")
+            logger.info(f"  ✅ Completed {scene_id}/{camera_id}: {len(image_files)} images processed")
 
-    logger.info(f"Dataset creation complete! Processed {image_id} images.")
+    logger.info(f"🎉 Dataset creation complete!")
+    logger.info(f"   📊 Total images processed: {total_images}")
+    logger.info(f"   📂 Total scenes processed: {len([s for s in scenes_to_include if (train_base_path / s.get('scene_id', '')).exists()])}")
+    logger.info(f"   📷 Total cameras processed: {total_cameras}")
     return images_dir, labels_dir
 
 
