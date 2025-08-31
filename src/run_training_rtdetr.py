@@ -92,12 +92,17 @@ def get_best_device():
 
 
 def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
-    """Convert MTMMC data to COCO format for RT-DETR training - FIXED to handle multiple scenes"""
+    """Convert MTMMC data to COCO format for RT-DETR training - Environment-aware with camera filtering"""
     logger.info("Creating COCO format dataset...")
     
     data_config = run_config.get("data", {})
+    env_config = run_config.get("environment", {})
     base_path = Path(data_config.get("base_path", DEFAULT_BASE_PATH))
     scenes_to_include = data_config.get("scenes_to_include", [])
+    environment_type = env_config.get("type", "factory")
+    
+    logger.info(f"Environment type: {environment_type}")
+    logger.info(f"Processing {len(scenes_to_include)} scenes with environment-specific camera filtering")
     use_data_subset = data_config.get("use_data_subset", False)
     data_subset_fraction = data_config.get("data_subset_fraction", 1.0)
     
@@ -289,9 +294,40 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         mlflow.log_param("dataset.images_created", len(list(images_dir.glob("*.jpg"))))
         mlflow.log_param("dataset.labels_created", len(list(labels_dir.glob("*.txt"))))
         
-        # Initialize RT-DETR model
+        # Initialize RT-DETR model with optional pretrained weights
+        model_config = run_config.get("model", {})
+        pretrained_weights = model_config.get("pretrained_weights", None)
+        model_size = model_config.get("model_size", "rtdetr-l.pt")
+        environment_type = run_config.get("environment", {}).get("type", "factory")
+        
         logger.info("Initializing RT-DETR model...")
-        model = RTDETR("rtdetr-l.pt")  # Load pretrained RT-DETR Large model
+        
+        if pretrained_weights and Path(pretrained_weights).exists():
+            logger.info(f"Loading pretrained weights for progressive training: {pretrained_weights}")
+            logger.info("This enables fine-tuning from previous scene training")
+            model = RTDETR(pretrained_weights)  # Load custom pretrained weights
+            
+            # Use lower learning rate for fine-tuning
+            training_config = run_config.get("training", {})
+            fine_tune_lr = training_config.get("fine_tune_lr", 0.0001)
+            if "lr0" in training_config:
+                training_config["lr0"] = fine_tune_lr
+                logger.info(f"Using fine-tuning learning rate: {fine_tune_lr}")
+            
+            mlflow.log_param("training.mode", "fine_tuning")
+            mlflow.log_param("training.pretrained_weights", str(pretrained_weights))
+        else:
+            if pretrained_weights:
+                logger.warning(f"Pretrained weights file not found: {pretrained_weights}")
+                logger.warning("Falling back to default pretrained weights")
+            
+            logger.info(f"Loading default pretrained model: {model_size}")
+            model = RTDETR(model_size)  # Load default pretrained RT-DETR model
+            mlflow.log_param("training.mode", "from_pretrained")
+            mlflow.log_param("training.base_model", model_size)
+        
+        mlflow.log_param("environment.type", environment_type)
+        logger.info(f"Model initialized for {environment_type} environment")
         
         # Configure Ultralytics settings to disable built-in tracking
         try:
@@ -762,9 +798,26 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
 def main():
     """
     Runs a single RT-DETR training job based on the configuration file.
+    
+    Usage:
+        python src/run_training_rtdetr.py [config_path]
+    
+    Examples:
+        python src/run_training_rtdetr.py configs/rtdetr_factory_config.yaml
+        python src/run_training_rtdetr.py configs/rtdetr_campus_config.yaml
+        python src/run_training_rtdetr.py  # Uses default config
     """
     logger.info("--- Starting RT-DETR Training Run ---")
-    config_path_str = "configs/rtdetr_training_config.yaml"
+    
+    # Support command line config file argument
+    if len(sys.argv) > 1:
+        config_path_str = sys.argv[1]
+        logger.info(f"Using config file from command line: {config_path_str}")
+    else:
+        config_path_str = "configs/rtdetr_training_config.yaml"
+        logger.info("Using default config file (consider using environment-specific configs)")
+        logger.info("Available configs: rtdetr_factory_config.yaml, rtdetr_campus_config.yaml")
+    
     final_status = "FAILED"
     run_id = None
 
@@ -774,7 +827,20 @@ def main():
         logger.critical(
             f"Failed to load configuration from {config_path_str}. Exiting."
         )
+        logger.info("Make sure the config file exists and is properly formatted.")
+        logger.info("Available environment-specific configs:")
+        logger.info("  - configs/rtdetr_factory_config.yaml (Factory scenes: s01, s10, s11, s13, s16, s18, s20)")
+        logger.info("  - configs/rtdetr_campus_config.yaml (Campus scenes: s35, s36, s38, s39, s42, s47)")
         sys.exit(1)
+    
+    # Log environment information
+    env_config = config.get("environment", {})
+    environment_type = env_config.get("type", "unknown")
+    logger.info(f"Training environment: {environment_type}")
+    if environment_type == "factory":
+        logger.info("Factory environment - optimized for industrial scenes with controlled lighting")
+    elif environment_type == "campus":
+        logger.info("Campus environment - optimized for outdoor scenes with natural lighting variations")
 
     # --- Extract the single training job config ---
     models_to_train = config.get("models_to_train")

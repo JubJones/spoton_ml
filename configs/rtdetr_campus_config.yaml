@@ -1,0 +1,147 @@
+mlflow:
+  experiment_name: "MTMMC Detection Training (RT-DETR) - Campus Environment"
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+  type: "campus" # Environment type for identification
+
+data:
+  base_path: "D:/MTMMC" # Adjust to your dataset location
+  
+  # CAMPUS ENVIRONMENT CONFIGURATION
+  # Campus scenes: s35, s36, s38, s39, s42, s47
+  # Campus cameras: c01, c02, c03, c05 only
+  scenes_to_include:
+    # Start with single scene for progressive training
+    - scene_id: "s47"  # Campus scene 1 (most common in examples)
+      camera_ids: ["c01", "c02", "c03", "c05"]
+    
+    # Uncomment additional scenes for multi-scene training:
+    # - scene_id: "s35"  # Campus scene 2
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s36"  # Campus scene 3
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s38"  # Campus scene 4
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s39"  # Campus scene 5
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s42"  # Campus scene 6
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+
+  # Data subsetting for production training
+  use_data_subset: false # Set to false to use ALL data for selected scenes
+  data_subset_fraction: 1.0  # Full dataset when use_data_subset is false
+  
+  # Train/Val split
+  val_split_ratio: 0.2 # Proportion of data to use for validation
+  num_workers: 4 # Number of workers for DataLoader
+
+# --- Models to Train (Child Runs) ---
+models_to_train:
+  # --- RT-DETR Campus Model Configuration ---
+  - model:
+      type: "rtdetr"
+      name_tag: "RTDETR_Campus_Progressive" # Used for run naming
+      model_size: "rtdetr-l.pt" # Base model size
+      num_classes: 1 # Only person class (Ultralytics format - no background)
+      
+      # PROGRESSIVE TRAINING SUPPORT
+      # Set this to path of previous scene weights for fine-tuning
+      # Leave as null to start with pretrained weights
+      pretrained_weights: null  # Example: "checkpoints/rtdetr/campus/s47_best.pt"
+      
+    training:
+      engine: "ultralytics"
+      epochs: 50  # Reasonable epochs for campus environment
+      batch_size: 8  # Adjust based on GPU memory
+      learning_rate: 0.001  # Base learning rate for new training
+      fine_tune_lr: 0.0001  # Lower LR when using pretrained_weights
+      
+      # RT-DETR specific parameters for CAMPUS optimization
+      imgsz: 640 # Image size for training
+      patience: 20 # Early stopping patience for single environment
+      save_period: 5 # Save checkpoints every 5 epochs
+      cache: true # Enable caching for faster training
+      device: null # Will use the device from environment config
+      workers: 8 # Data loading workers
+      project: "checkpoints" # Project directory for saving runs
+      name: "rtdetr_campus" # Run name for saving checkpoints
+      exist_ok: true # Overwrite existing project/name
+      pretrained: true # Use pretrained weights (when pretrained_weights is null)
+      optimizer: "AdamW" # Optimizer
+      verbose: true # Verbose output
+      seed: 42 # Random seed
+      deterministic: true # Deterministic training
+      single_cls: true # Train as single-class dataset (person only)
+      rect: false # Rectangular training
+      cos_lr: false # Cosine learning rate scheduler
+      close_mosaic: 10 # Disable mosaic augmentation for final epochs
+      resume: false # Resume training from last checkpoint
+      amp: true # Automatic Mixed Precision training
+      fraction: 1.0 # Dataset fraction to train/val/test on
+      profile: false # Profile speeds during training
+      freeze: null # Freeze layers (can be used for fine-tuning)
+      
+      # Learning rate scheduler - CAMPUS optimized
+      lr0: 0.001 # Initial learning rate (will be overridden if fine-tuning)
+      lrf: 0.01 # Final learning rate (lr0 * lrf)
+      momentum: 0.937 # SGD momentum/Adam beta1
+      weight_decay: 0.0005 # Optimizer weight decay
+      warmup_epochs: 5.0 # Warmup epochs
+      warmup_momentum: 0.8 # Warmup initial momentum
+      warmup_bias_lr: 0.1 # Warmup initial bias lr
+      
+      # Loss function parameters
+      box: 7.5 # Box loss gain
+      cls: 0.5 # Cls loss gain
+      dfl: 1.5 # DFL loss gain
+      
+      # CAMPUS-SPECIFIC AUGMENTATION SETTINGS
+      # Optimized for outdoor/campus environments
+      
+      # Color Space Augmentations - Natural lighting conditions
+      hsv_h: 0.025 # More hue variation for natural lighting changes
+      hsv_s: 0.8 # Higher saturation for outdoor variations
+      hsv_v: 0.6 # Brightness variation for weather/time changes
+      
+      # Geometric Augmentations - Campus scene characteristics
+      degrees: 12.0 # More rotation for varied campus perspectives
+      translate: 0.15 # Higher translation for diverse campus layouts
+      scale: 0.6 # More scale variation for varying distances
+      shear: 5.0 # Moderate shear for campus environments
+      perspective: 0.0003 # More perspective for outdoor scenes
+      
+      # Flip Augmentations
+      flipud: 0.05 # Occasional vertical flips for campus diversity
+      fliplr: 0.5 # Standard horizontal flips
+      
+      # Advanced Composition Augmentations - Campus focus
+      mosaic: 0.9 # High mosaic for campus diversity
+      mixup: 0.15 # More mixup for outdoor scene variations
+      copy_paste: 0.1 # More copy-paste for diverse campus scenes
+      
+      # Advanced parameters
+      multi_scale: true # Multi-scale training for campus environments
+      erasing: 0.15 # More erasing for outdoor occlusion patterns
+      auto_augment: "randaugment" # Automatic augmentation policy
+      cutmix: 0.1 # More CutMix for campus scene diversity
+      
+      # Validation settings
+      val: true # Validate during training
+      split: "val" # Dataset split for validation
+      save_json: true # Save results to JSON for analysis
+      save_hybrid: false # Save hybrid labels
+      conf: null # Detection confidence threshold (default 0.25)
+      iou: 0.7 # IoU threshold for NMS
+      max_det: 300 # Maximum detections per image
+      half: false # Use half precision (FP16)
+      dnn: false # Use OpenCV DNN for ONNX inference
+      plots: true # Show plots during training
+      
+      # Campus-specific settings
+      save_best_metric: "metrics/mAP50-95(B)" # Metric to save best model
+      checkpoint_dir: "checkpoints/rtdetr/campus"
+
+# Run naming for progressive training
+run_name: "RT-DETR Campus Progressive Training"

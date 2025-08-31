@@ -1,0 +1,149 @@
+mlflow:
+  experiment_name: "MTMMC Detection Training (RT-DETR) - Factory Environment"
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+  type: "factory" # Environment type for identification
+
+data:
+  base_path: "D:/MTMMC" # Adjust to your dataset location
+  
+  # FACTORY ENVIRONMENT CONFIGURATION
+  # Factory scenes: s01, s10, s11, s13, s16, s18, s20
+  # Factory cameras: c09, c12, c13, c16 only
+  scenes_to_include:
+    # Start with single scene for progressive training
+    - scene_id: "s01"  # Factory scene 1
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    
+    # Uncomment additional scenes for multi-scene training:
+    # - scene_id: "s10"  # Factory scene 2
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s11"  # Factory scene 3
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s13"  # Factory scene 4
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s16"  # Factory scene 5
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s18"  # Factory scene 6
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s20"  # Factory scene 7
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+
+  # Data subsetting for production training
+  use_data_subset: false # Set to false to use ALL data for selected scenes
+  data_subset_fraction: 1.0  # Full dataset when use_data_subset is false
+  
+  # Train/Val split
+  val_split_ratio: 0.2 # Proportion of data to use for validation
+  num_workers: 4 # Number of workers for DataLoader
+
+# --- Models to Train (Child Runs) ---
+models_to_train:
+  # --- RT-DETR Factory Model Configuration ---
+  - model:
+      type: "rtdetr"
+      name_tag: "RTDETR_Factory_Progressive" # Used for run naming
+      model_size: "rtdetr-l.pt" # Base model size
+      num_classes: 1 # Only person class (Ultralytics format - no background)
+      
+      # PROGRESSIVE TRAINING SUPPORT
+      # Set this to path of previous scene weights for fine-tuning
+      # Leave as null to start with pretrained weights
+      pretrained_weights: null  # Example: "checkpoints/rtdetr/factory/s01_best.pt"
+      
+    training:
+      engine: "ultralytics"
+      epochs: 50  # Reasonable epochs for factory environment
+      batch_size: 8  # Adjust based on GPU memory
+      learning_rate: 0.001  # Base learning rate for new training
+      fine_tune_lr: 0.0001  # Lower LR when using pretrained_weights
+      
+      # RT-DETR specific parameters for FACTORY optimization
+      imgsz: 640 # Image size for training
+      patience: 20 # Early stopping patience for single environment
+      save_period: 5 # Save checkpoints every 5 epochs
+      cache: true # Enable caching for faster training
+      device: null # Will use the device from environment config
+      workers: 8 # Data loading workers
+      project: "checkpoints" # Project directory for saving runs
+      name: "rtdetr_factory" # Run name for saving checkpoints
+      exist_ok: true # Overwrite existing project/name
+      pretrained: true # Use pretrained weights (when pretrained_weights is null)
+      optimizer: "AdamW" # Optimizer
+      verbose: true # Verbose output
+      seed: 42 # Random seed
+      deterministic: true # Deterministic training
+      single_cls: true # Train as single-class dataset (person only)
+      rect: false # Rectangular training
+      cos_lr: false # Cosine learning rate scheduler
+      close_mosaic: 10 # Disable mosaic augmentation for final epochs
+      resume: false # Resume training from last checkpoint
+      amp: true # Automatic Mixed Precision training
+      fraction: 1.0 # Dataset fraction to train/val/test on
+      profile: false # Profile speeds during training
+      freeze: null # Freeze layers (can be used for fine-tuning)
+      
+      # Learning rate scheduler - FACTORY optimized
+      lr0: 0.001 # Initial learning rate (will be overridden if fine-tuning)
+      lrf: 0.01 # Final learning rate (lr0 * lrf)
+      momentum: 0.937 # SGD momentum/Adam beta1
+      weight_decay: 0.0005 # Optimizer weight decay
+      warmup_epochs: 5.0 # Warmup epochs
+      warmup_momentum: 0.8 # Warmup initial momentum
+      warmup_bias_lr: 0.1 # Warmup initial bias lr
+      
+      # Loss function parameters
+      box: 7.5 # Box loss gain
+      cls: 0.5 # Cls loss gain
+      dfl: 1.5 # DFL loss gain
+      
+      # FACTORY-SPECIFIC AUGMENTATION SETTINGS
+      # Optimized for industrial/factory environments
+      
+      # Color Space Augmentations - Factory lighting conditions
+      hsv_h: 0.015 # Conservative hue changes for industrial lighting
+      hsv_s: 0.6 # Moderate saturation for factory environments
+      hsv_v: 0.5 # Brightness variation for artificial lighting
+      
+      # Geometric Augmentations - Factory scene characteristics
+      degrees: 8.0 # Moderate rotation for structured factory layouts
+      translate: 0.1 # Translation range for fixed camera positions
+      scale: 0.4 # Scale variation for consistent factory distances
+      shear: 3.0 # Minimal shear for industrial environments
+      perspective: 0.0001 # Light perspective for fixed installations
+      
+      # Flip Augmentations
+      flipud: 0.0 # No vertical flips for factory (gravity consistent)
+      fliplr: 0.5 # Standard horizontal flips
+      
+      # Advanced Composition Augmentations - Industrial focus
+      mosaic: 0.8 # High mosaic for factory training
+      mixup: 0.1 # Light mixup for regularization
+      copy_paste: 0.05 # Minimal copy-paste for industrial scenes
+      
+      # Advanced parameters
+      multi_scale: true # Multi-scale training for factory environments
+      erasing: 0.1 # Random erasing for occlusion simulation
+      auto_augment: "randaugment" # Automatic augmentation policy
+      cutmix: 0.05 # Light CutMix augmentation
+      
+      # Validation settings
+      val: true # Validate during training
+      split: "val" # Dataset split for validation
+      save_json: true # Save results to JSON for analysis
+      save_hybrid: false # Save hybrid labels
+      conf: null # Detection confidence threshold (default 0.25)
+      iou: 0.7 # IoU threshold for NMS
+      max_det: 300 # Maximum detections per image
+      half: false # Use half precision (FP16)
+      dnn: false # Use OpenCV DNN for ONNX inference
+      plots: true # Show plots during training
+      
+      # Factory-specific settings
+      save_best_metric: "metrics/mAP50-95(B)" # Metric to save best model
+      checkpoint_dir: "checkpoints/rtdetr/factory"
+
+# Run naming for progressive training
+run_name: "RT-DETR Factory Progressive Training"
