@@ -137,6 +137,7 @@ def create_coco_format_data(run_config: Dict[str, Any], output_dir: Path):
             
         logger.info(f"📂 Processing scene {scene_id} ({scene_idx+1}/{total_scenes}) with {len(camera_ids)} cameras")
         
+        for camera_idx, camera_id in enumerate(camera_ids):
             camera_path = scene_path / camera_id
             rgb_path = camera_path / "rgb"
             gt_path = camera_path / "gt" / "gt.txt"
