@@ -25,7 +25,7 @@ data:
 
   # Data subsetting for production training - DISABLED for full dataset
   use_data_subset: false # CHANGED: Set to false to use ALL data
-  data_subset_fraction: 1.0  # Full dataset when use_data_subset is false
+  data_subset_fraction: 0.1  # Full dataset when use_data_subset is false
 
   # Train/Val split
   val_split_ratio: 0.2 # Proportion of (sub)set to use for validation
@@ -42,7 +42,7 @@ models_to_train:
       
     training:
       engine: "ultralytics"
-      epochs: 100  # PRODUCTION: Increased from 2 to 100 for serious training
+      epochs: 1  # PRODUCTION: Increased from 2 to 100 for serious training
       batch_size: 8  # PRODUCTION: Increased from 4 to 8 for better convergence (adjust based on GPU memory)
       learning_rate: 0.001  # Base learning rate (overridden by lr0 in Ultralytics)
       # RT-DETR specific parameters for Ultralytics - PRODUCTION OPTIMIZED
