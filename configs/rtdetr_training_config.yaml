@@ -80,7 +80,7 @@ models_to_train:
       dfl: 1.5 # DFL loss gain
       pose: 12.0 # Pose loss gain (pose-only models)
       kobj: 2.0 # Keypoint obj loss gain (pose-only models)
-      label_smoothing: 0.1 # Label smoothing (fraction) - enhanced for better generalization
+      # label_smoothing: 0.1 # DEPRECATED in newer Ultralytics versions
       nbs: 64 # Nominal batch size for normalization
       
       # ENHANCED COMPLEX AUGMENTATION SETTINGS

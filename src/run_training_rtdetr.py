@@ -313,7 +313,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
             'box': training_config.get('box', 7.5),
             'cls': training_config.get('cls', 0.5),
             'dfl': training_config.get('dfl', 1.5),
-            'label_smoothing': training_config.get('label_smoothing', 0.0),
+            # Note: label_smoothing is deprecated in newer Ultralytics versions
             
             # Color space augmentations
             'hsv_h': training_config.get('hsv_h', 0.015),
@@ -480,13 +480,16 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                     if hasattr(validator, 'loss') and validator.loss is not None:
                         mlflow.log_metric("epoch_val_loss_avg", float(validator.loss), step=epoch)
         
-        # Setup MLflow callback
+        # Setup MLflow callback using Ultralytics callback system
         callback = MLflowCallback(run_id)
         
-        # Add callback to training parameters
-        training_params['callbacks'] = [callback]
+        # Register callback with model instead of passing as parameter
+        model.add_callback('on_train_epoch_start', callback.on_train_epoch_start)
+        model.add_callback('on_train_epoch_end', callback.on_train_epoch_end)
+        model.add_callback('on_val_end', callback.on_val_end)
         
         logger.info("Starting RT-DETR training with MLflow logging (similar to FasterRCNN)...")
+        logger.info("MLflow callbacks registered with Ultralytics model")
         start_time_training = time.time()
         
         results = model.train(**training_params)
