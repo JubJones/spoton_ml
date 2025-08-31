@@ -437,9 +437,18 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
             
             def on_val_end(self, validator):
                 """Log comprehensive validation metrics matching FasterRCNN implementation"""
+                logger.info(f"🔬 CALLBACK DEBUG: on_val_end triggered for epoch validation")
+                logger.info(f"   - validator exists: {validator is not None}")
+                logger.info(f"   - validator.metrics exists: {hasattr(validator, 'metrics') and validator.metrics is not None}")
+                logger.info(f"   - validator.trainer exists: {hasattr(validator, 'trainer')}")
+                
                 if validator.metrics and hasattr(validator, 'trainer') and validator.trainer.epoch is not None:
                     metrics = validator.metrics.results_dict
                     epoch = validator.trainer.epoch
+                    
+                    logger.info(f"📊 Epoch {epoch} validation metrics available:")
+                    logger.info(f"   - Total metrics keys: {len(metrics)}")
+                    logger.info(f"   - Available metrics: {list(metrics.keys())}")
                     
                     # COMPREHENSIVE mAP METRICS LOGGING (matching screenshot exactly)
                     # ================================================================
@@ -537,17 +546,37 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                     # Log validation loss if available (similar to avg_val_loss in FasterRCNN)
                     if hasattr(validator, 'loss') and validator.loss is not None:
                         mlflow.log_metric("epoch_val_loss_avg", float(validator.loss), step=epoch)
+                    
+                    # Debug summary of what was logged
+                    logger.info(f"✅ Epoch {epoch} metrics logging completed successfully!")
+                    logger.info(f"   - Logged metrics for epoch {epoch}")
+                    logger.info(f"   - Current best mAP@0.5:0.95: {self.best_map:.4f} (epoch {self.best_epoch})")
+                else:
+                    logger.warning(f"⚠️ CALLBACK DEBUG: Validation metrics not available")
+                    if not validator.metrics:
+                        logger.warning("   - validator.metrics is None")
+                    if not hasattr(validator, 'trainer'):
+                        logger.warning("   - validator.trainer not found")
+                    elif validator.trainer.epoch is None:
+                        logger.warning("   - validator.trainer.epoch is None")
         
         # Setup MLflow callback using Ultralytics callback system
         callback = MLflowCallback(run_id)
         
         # Register callback with model instead of passing as parameter
+        logger.info("🔗 Registering MLflow callbacks with Ultralytics model...")
         model.add_callback('on_train_epoch_start', callback.on_train_epoch_start)
         model.add_callback('on_train_epoch_end', callback.on_train_epoch_end)
         model.add_callback('on_val_end', callback.on_val_end)
         
+        # Verify callback registration
+        if hasattr(model, 'callbacks'):
+            logger.info(f"✅ Model callbacks registered: {list(model.callbacks.keys())}")
+        else:
+            logger.warning("⚠️ Model.callbacks attribute not found - callback registration may have failed")
+        
         logger.info("Starting RT-DETR training with MLflow logging (similar to FasterRCNN)...")
-        logger.info("MLflow callbacks registered with Ultralytics model")
+        logger.info("🚀 MLflow callbacks registered with Ultralytics model")
         start_time_training = time.time()
         
         results = model.train(**training_params)
@@ -571,45 +600,85 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                 final_metrics = {"map_50_95": results.maps[0]}
         
         # Enhanced checkpoint and artifact logging (similar to FasterRCNN)
-        experiment_dir = output_dir / "rtdetr_experiment"
+        # Fix: Use dynamic name from config instead of hardcoded
+        experiment_name = training_config.get('name', 'rtdetr_experiment')
+        experiment_dir = output_dir / experiment_name
         checkpoint_dir = project_root / "checkpoints" / "rtdetr" / run_id
+        
+        # Debug logging for path verification
+        logger.info(f"🔍 DEBUG: Checking artifact paths...")
+        logger.info(f"   Output dir: {output_dir}")
+        logger.info(f"   Experiment name: {experiment_name}")
+        logger.info(f"   Experiment dir: {experiment_dir}")
+        logger.info(f"   Experiment dir exists: {experiment_dir.exists()}")
         
         # Log best model parameters
         if callback.best_epoch >= 0:
             mlflow.log_param("best_model_epoch", callback.best_epoch)
             mlflow.log_param("best_model_map_50_95", f"{callback.best_map:.4f}")
         
+        # Enhanced directory discovery and debugging
         if experiment_dir.exists():
-            logger.info("Logging comprehensive RT-DETR training artifacts...")
+            logger.info("✅ Experiment directory found! Logging comprehensive RT-DETR training artifacts...")
+            
+            # List all contents for debugging
+            logger.info(f"📂 Experiment directory contents:")
+            for item in experiment_dir.iterdir():
+                logger.info(f"   - {item.name} ({'dir' if item.is_dir() else 'file'})")
             
             # Create checkpoint directory structure (like FasterRCNN)
             checkpoint_dir.mkdir(parents=True, exist_ok=True)
             
-            # Log model checkpoints with structured paths
+            # Log model checkpoints with structured paths and extensive debugging
             weights_dir = experiment_dir / "weights"
+            logger.info(f"🎯 Checking weights directory: {weights_dir}")
+            logger.info(f"   Weights dir exists: {weights_dir.exists()}")
+            
             if weights_dir.exists():
+                logger.info("📦 Weights directory contents:")
+                for weight_file in weights_dir.iterdir():
+                    logger.info(f"   - {weight_file.name} ({weight_file.stat().st_size} bytes)")
+                
                 best_pt = weights_dir / "best.pt"
                 last_pt = weights_dir / "last.pt"
                 
+                logger.info(f"🏆 Best checkpoint: {best_pt} (exists: {best_pt.exists()})")
+                logger.info(f"📝 Last checkpoint: {last_pt} (exists: {last_pt.exists()})")
+                
                 # Log best model checkpoint (similar to best_model_path in FasterRCNN)
                 if best_pt.exists():
-                    logger.info(f"Logging best model checkpoint: {best_pt.name}")
+                    logger.info(f"✅ Logging best model checkpoint: {best_pt.name} ({best_pt.stat().st_size} bytes)")
                     mlflow.log_artifact(str(best_pt), artifact_path="checkpoints")
                     
                     # Copy to structured checkpoint dir (like FasterRCNN)
                     best_checkpoint_path = checkpoint_dir / f"ckpt_best_map_50_95.pt"
                     import shutil
                     shutil.copy2(best_pt, best_checkpoint_path)
+                    logger.info(f"📁 Copied best checkpoint to: {best_checkpoint_path}")
+                else:
+                    logger.warning(f"❌ Best checkpoint not found at: {best_pt}")
                 
                 # Log latest model checkpoint (similar to latest_path in FasterRCNN)
                 if last_pt.exists():
+                    logger.info(f"✅ Logging latest model checkpoint: {last_pt.name} ({last_pt.stat().st_size} bytes)")
                     mlflow.log_artifact(str(last_pt), artifact_path="checkpoints/latest")
                     
                     # Copy to structured checkpoint dir
                     latest_checkpoint_path = checkpoint_dir / f"ckpt_latest.pt"
                     shutil.copy2(last_pt, latest_checkpoint_path)
+                    logger.info(f"📁 Copied latest checkpoint to: {latest_checkpoint_path}")
+                else:
+                    logger.warning(f"❌ Latest checkpoint not found at: {last_pt}")
+            else:
+                logger.warning(f"❌ Weights directory not found at: {weights_dir}")
+                # Try to find weights in alternative locations
+                logger.info("🔍 Searching for weights in experiment directory...")
+                for pt_file in experiment_dir.rglob("*.pt"):
+                    logger.info(f"   Found .pt file: {pt_file}")
             
             # Log training plots and results (organized like FasterRCNN)
+            artifact_count = 0
+            logger.info("📊 Scanning for all artifacts...")
             for artifact_file in experiment_dir.rglob("*"):
                 if artifact_file.is_file():
                     
@@ -627,10 +696,24 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                     
                     try:
                         mlflow.log_artifact(str(artifact_file), artifact_path=artifact_path)
+                        artifact_count += 1
+                        logger.debug(f"   ✅ Logged: {artifact_file.name} → {artifact_path}")
                     except Exception as e:
-                        logger.warning(f"Could not log artifact {artifact_file}: {e}")
+                        logger.warning(f"❌ Could not log artifact {artifact_file}: {e}")
             
-            logger.info("All RT-DETR training artifacts logged successfully!")
+            logger.info(f"🎉 All RT-DETR training artifacts logged successfully! ({artifact_count} files)")
+        else:
+            logger.error(f"❌ Experiment directory not found: {experiment_dir}")
+            # Try to find where Ultralytics actually created the outputs
+            logger.info("🔍 Searching for Ultralytics outputs in output directory...")
+            if output_dir.exists():
+                for item in output_dir.rglob("*"):
+                    if item.is_dir() and item.name != experiment_name:
+                        logger.info(f"   Found directory: {item}")
+                        if (item / "weights").exists():
+                            logger.info(f"   🎯 Found weights directory in: {item}")
+            else:
+                logger.error(f"❌ Output directory not found: {output_dir}")
         
         job_status = "FINISHED"
         logger.info("RT-DETR training completed successfully!")
