@@ -18,22 +18,22 @@ data:
       camera_ids: ["c09", "c12", "c13", "c16"]
     
     # Uncomment additional scenes for multi-scene training:
-    # - scene_id: "s10"  # Factory scene 2
-    #   camera_ids: ["c09", "c12", "c13", "c16"]
-    # - scene_id: "s11"  # Factory scene 3
-    #   camera_ids: ["c09", "c12", "c13", "c16"]
-    # - scene_id: "s13"  # Factory scene 4
-    #   camera_ids: ["c09", "c12", "c13", "c16"]
-    # - scene_id: "s16"  # Factory scene 5
-    #   camera_ids: ["c09", "c12", "c13", "c16"]
-    # - scene_id: "s18"  # Factory scene 6
-    #   camera_ids: ["c09", "c12", "c13", "c16"]
-    # - scene_id: "s20"  # Factory scene 7
-    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s10"  # Factory scene 2
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s11"  # Factory scene 3
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s13"  # Factory scene 4
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s16"  # Factory scene 5
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s18"  # Factory scene 6
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s20"  # Factory scene 7
+      camera_ids: ["c09", "c12", "c13", "c16"]
 
   # Data subsetting for production training
   use_data_subset: false # Set to false to use ALL data for selected scenes
-  data_subset_fraction: 0.1  # Full dataset when use_data_subset is false
+  data_subset_fraction: 1  # Full dataset when use_data_subset is false
   
   # Train/Val split
   val_split_ratio: 0.2 # Proportion of data to use for validation
@@ -55,7 +55,7 @@ models_to_train:
       
     training:
       engine: "ultralytics"
-      epochs: 1  # Reasonable epochs for factory environment
+      epochs: 50  # Reasonable epochs for factory environment
       batch_size: 2  # Reduced for memory optimization
       learning_rate: 0.001  # Base learning rate for new training
       fine_tune_lr: 0.0001  # Lower LR when using pretrained_weights
