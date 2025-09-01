@@ -31,7 +31,7 @@ data:
 
   # Data subsetting for production training
   use_data_subset: false # Set to false to use ALL data for selected scenes
-  data_subset_fraction: 1.0  # Full dataset when use_data_subset is false
+  data_subset_fraction: 0.1  # Full dataset when use_data_subset is false
   
   # Train/Val split
   val_split_ratio: 0.2 # Proportion of data to use for validation
@@ -53,13 +53,13 @@ models_to_train:
       
     training:
       engine: "ultralytics"
-      epochs: 50  # Reasonable epochs for campus environment
-      batch_size: 2  # Reduced for memory optimization
+      epochs: 1  # Reduced epochs for fast fine-tuning
+      batch_size: 4  # Increased for faster training (if memory allows)
       learning_rate: 0.001  # Base learning rate for new training
       fine_tune_lr: 0.0001  # Lower LR when using pretrained_weights
       
       # RT-DETR specific parameters for CAMPUS optimization
-      imgsz: 640 # Reduced image size for memory optimization
+      imgsz: 416 # Further reduced image size for faster training
       patience: 20 # Early stopping patience for single environment
       save_period: 5 # Save checkpoints every 5 epochs
       cache: false # Disable caching to save memory
@@ -100,35 +100,35 @@ models_to_train:
       # CAMPUS-SPECIFIC AUGMENTATION SETTINGS
       # Optimized for outdoor/campus environments
       
-      # Color Space Augmentations - Natural lighting conditions
-      hsv_h: 0.025 # More hue variation for natural lighting changes
-      hsv_s: 0.8 # Higher saturation for outdoor variations
-      hsv_v: 0.6 # Brightness variation for weather/time changes
+      # Color Space Augmentations - Disabled for ultra-fast fine-tuning
+      hsv_h: 0.0 # Disabled hue changes for fastest training
+      hsv_s: 0.0 # Disabled saturation changes for fastest training
+      hsv_v: 0.0 # Disabled brightness variation for fastest training
       
-      # Geometric Augmentations - Campus scene characteristics
-      degrees: 12.0 # More rotation for varied campus perspectives
-      translate: 0.15 # Higher translation for diverse campus layouts
-      scale: 0.6 # More scale variation for varying distances
-      shear: 5.0 # Moderate shear for campus environments
-      perspective: 0.0003 # More perspective for outdoor scenes
+      # Geometric Augmentations - Disabled for ultra-fast fine-tuning
+      degrees: 0.0 # Disabled rotation for fastest training
+      translate: 0.0 # Disabled translation for fastest training
+      scale: 0.0 # Disabled scale variation for fastest training
+      shear: 0.0 # Disabled shear for fastest training
+      perspective: 0.0 # Disabled perspective for fastest training
       
-      # Flip Augmentations
-      flipud: 0.05 # Occasional vertical flips for campus diversity
-      fliplr: 0.5 # Standard horizontal flips
+      # Flip Augmentations - Only horizontal flip for minimal generalization
+      flipud: 0.0 # Disabled vertical flips for fastest training
+      fliplr: 0.5 # Keep horizontal flip - minimal cost, good generalization
       
-      # Advanced Composition Augmentations - Campus focus
-      mosaic: 0.9 # High mosaic for campus diversity
-      mixup: 0.15 # More mixup for outdoor scene variations
-      copy_paste: 0.1 # More copy-paste for diverse campus scenes
+      # Advanced Composition Augmentations - Disabled for fast fine-tuning
+      mosaic: 0.0 # Disabled mosaic for faster training
+      mixup: 0.0 # Disabled mixup for faster training
+      copy_paste: 0.0 # Disabled copy-paste for faster training
       
-      # Advanced parameters
-      multi_scale: true # Multi-scale training for campus environments
-      erasing: 0.15 # More erasing for outdoor occlusion patterns
-      auto_augment: "randaugment" # Automatic augmentation policy
-      cutmix: 0.1 # More CutMix for campus scene diversity
+      # Advanced parameters - Disabled for fast fine-tuning
+      multi_scale: false # Disabled multi-scale for faster training
+      erasing: 0.0 # Disabled random erasing for faster training
+      auto_augment: null # Disabled automatic augmentation for faster training
+      cutmix: 0.0 # Disabled CutMix for faster training
       
       # Validation settings
-      val: true # Validate during training
+      val: false # Disabled validation for faster training
       split: "val" # Dataset split for validation
       save_json: true # Save results to JSON for analysis
       save_hybrid: false # Save hybrid labels
@@ -137,7 +137,7 @@ models_to_train:
       max_det: 300 # Maximum detections per image
       half: false # Use half precision (FP16)
       dnn: false # Use OpenCV DNN for ONNX inference
-      plots: true # Show plots during training
+      plots: false # Disabled plots for faster training
       
       # Campus-specific settings
       save_best_metric: "metrics/mAP50-95(B)" # Metric to save best model

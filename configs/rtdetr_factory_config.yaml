@@ -61,7 +61,7 @@ models_to_train:
       fine_tune_lr: 0.0001  # Lower LR when using pretrained_weights
       
       # RT-DETR specific parameters for FACTORY optimization
-      imgsz: 640 # Reduced image size for memory optimization
+      imgsz: 416 # Reduced image size for memory optimization
       patience: 20 # Early stopping patience for single environment
       save_period: 5 # Save checkpoints every 5 epochs
       cache: false # Disable caching to save memory
@@ -102,32 +102,32 @@ models_to_train:
       # FACTORY-SPECIFIC AUGMENTATION SETTINGS
       # Optimized for industrial/factory environments
       
-      # Color Space Augmentations - Factory lighting conditions
-      hsv_h: 0.015 # Conservative hue changes for industrial lighting
-      hsv_s: 0.6 # Moderate saturation for factory environments
-      hsv_v: 0.5 # Brightness variation for artificial lighting
+      # Color Space Augmentations - Disabled for ultra-fast fine-tuning
+      hsv_h: 0.0 # Disabled hue changes for fastest training
+      hsv_s: 0.0 # Disabled saturation changes for fastest training
+      hsv_v: 0.0 # Disabled brightness variation for fastest training
       
-      # Geometric Augmentations - Factory scene characteristics
-      degrees: 8.0 # Moderate rotation for structured factory layouts
-      translate: 0.1 # Translation range for fixed camera positions
-      scale: 0.4 # Scale variation for consistent factory distances
-      shear: 3.0 # Minimal shear for industrial environments
-      perspective: 0.0001 # Light perspective for fixed installations
+      # Geometric Augmentations - Disabled for ultra-fast fine-tuning
+      degrees: 0.0 # Disabled rotation for fastest training
+      translate: 0.0 # Disabled translation for fastest training
+      scale: 0.0 # Disabled scale variation for fastest training
+      shear: 0.0 # Disabled shear for fastest training
+      perspective: 0.0 # Disabled perspective for fastest training
       
-      # Flip Augmentations
-      flipud: 0.0 # No vertical flips for factory (gravity consistent)
-      fliplr: 0.5 # Standard horizontal flips
+      # Flip Augmentations - Only horizontal flip for minimal generalization
+      flipud: 0.0 # Disabled vertical flips for fastest training
+      fliplr: 0.5 # Keep horizontal flip - minimal cost, good generalization
       
-      # Advanced Composition Augmentations - Industrial focus
-      mosaic: 0.8 # High mosaic for factory training
-      mixup: 0.1 # Light mixup for regularization
-      copy_paste: 0.05 # Minimal copy-paste for industrial scenes
+      # Advanced Composition Augmentations - Disabled for fast fine-tuning
+      mosaic: 0.0 # Disabled mosaic for faster training
+      mixup: 0.0 # Disabled mixup for faster training
+      copy_paste: 0.0 # Disabled copy-paste for faster training
       
-      # Advanced parameters
-      multi_scale: true # Multi-scale training for factory environments
-      erasing: 0.1 # Random erasing for occlusion simulation
-      auto_augment: "randaugment" # Automatic augmentation policy
-      cutmix: 0.05 # Light CutMix augmentation
+      # Advanced parameters - Disabled for fast fine-tuning
+      multi_scale: false # Disabled multi-scale for faster training
+      erasing: 0.0 # Disabled random erasing for faster training
+      auto_augment: null # Disabled automatic augmentation for faster training
+      cutmix: 0.0 # Disabled CutMix for faster training
       
       # Validation settings
       val: true # Validate during training
@@ -139,7 +139,7 @@ models_to_train:
       max_det: 300 # Maximum detections per image
       half: false # Use half precision (FP16)
       dnn: false # Use OpenCV DNN for ONNX inference
-      plots: true # Show plots during training
+      plots: false # Disabled plots for faster training
       
       # Factory-specific settings
       save_best_metric: "metrics/mAP50-95(B)" # Metric to save best model
