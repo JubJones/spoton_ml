@@ -21,15 +21,15 @@ data:
     - scene_id: "s10"  # Factory scene 2
       camera_ids: ["c09", "c12", "c13", "c16"]
     - scene_id: "s11"  # Factory scene 3
-      camera_ids: ["c09", "c12", "c13", "c16"]
-    - scene_id: "s13"  # Factory scene 4
-      camera_ids: ["c09", "c12", "c13", "c16"]
-    - scene_id: "s16"  # Factory scene 5
-      camera_ids: ["c09", "c12", "c13", "c16"]
-    - scene_id: "s18"  # Factory scene 6
-      camera_ids: ["c09", "c12", "c13", "c16"]
-    - scene_id: "s20"  # Factory scene 7
-      camera_ids: ["c09", "c12", "c13", "c16"]
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s13"  # Factory scene 4
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s16"  # Factory scene 5
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s18"  # Factory scene 6
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s20"  # Factory scene 7
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
 
   # Data subsetting for production training
   use_data_subset: false # Set to false to use ALL data for selected scenes
