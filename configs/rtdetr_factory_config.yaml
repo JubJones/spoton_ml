@@ -34,7 +34,7 @@ data:
   
   # For testing stability - set to false for full dataset
   use_data_subset: true
-  data_subset_fraction: 0.1
+  data_subset_fraction: 1
 
 models_to_train:
   - model:
@@ -44,9 +44,9 @@ models_to_train:
       
     training:
       # CORE PARAMETERS - Only change these
-      epochs: 1
-      batch_size: 1
-      imgsz: 416
+      epochs: 50
+      batch_size: 4
+      imgsz: 640
       
       # STABILITY SETTINGS - Keep these for reliable training
       lr0: 0.0001          # Fixed learning rate (prevents NaN losses)
