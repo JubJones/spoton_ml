@@ -1,5 +1,5 @@
 """
-RT-DETR Training Runner with MLflow Integration
+RT-DETR Training Runner with Local Results Storage
 
 This script runs RT-DETR model training using the Ultralytics framework,
 following the same structure as the FasterRCNN training runner.
@@ -9,9 +9,9 @@ Usage:
 
 The script will:
 1. Load configuration from configs/rtdetr_training_config.yaml
-2. Setup MLflow experiment tracking with comprehensive metrics logging
-3. Train RT-DETR model using Ultralytics with person detection focus
-4. Log all training metrics including mAP, precision, recall, F1-score
+2. Train RT-DETR model using Ultralytics with person detection focus
+3. Store all training metrics including mAP, precision, recall, F1-score in local files
+4. Save results in JSON format for analysis
 """
 
 import logging
@@ -23,8 +23,8 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Optional
 
-import mlflow
-from mlflow.tracking import MlflowClient
+# import mlflow
+# from mlflow.tracking import MlflowClient
 
 # --- Project Setup ---
 PROJECT_ROOT = Path(__file__).parent.parent.resolve()
@@ -37,9 +37,9 @@ try:
     from src.utils.config_loader import load_config
     from src.utils.reproducibility import set_seed
     from src.utils.logging_utils import setup_logging
-    from src.utils.mlflow_utils import setup_mlflow_experiment
+    # from src.utils.mlflow_utils import setup_mlflow_experiment
     from src.utils.device_utils import get_selected_device
-    from src.utils.runner import log_params_recursive, log_git_info
+    # from src.utils.runner import log_params_recursive, log_git_info
 except ImportError as e:
     print(f"Error importing local modules in run_training_rtdetr.py: {e}")
     print("Please ensure all modules exist and PYTHONPATH is set correctly.")
@@ -58,6 +58,117 @@ warnings.filterwarnings("ignore", category=UserWarning, module="ultralytics")
 # Import Ultralytics after logging setup
 from ultralytics import RTDETR
 import ultralytics.utils
+
+# ===== Local Results Storage System =====
+class LocalResultsLogger:
+    """Local file-based results logging system to replace MLflow"""
+    
+    def __init__(self, results_dir: Path, run_name: str):
+        self.results_dir = Path(results_dir)
+        self.run_name = run_name
+        self.run_dir = self.results_dir / run_name
+        self.run_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Initialize results storage
+        self.params = {}
+        self.metrics = {}
+        self.tags = {}
+        self.artifacts = []
+        
+        logger.info(f"Local results will be stored in: {self.run_dir}")
+    
+    def log_param(self, key: str, value):
+        """Log a parameter"""
+        self.params[key] = str(value)
+    
+    def log_metric(self, key: str, value: float, step: int = None):
+        """Log a metric with optional step"""
+        if key not in self.metrics:
+            self.metrics[key] = []
+        
+        metric_entry = {"value": float(value)}
+        if step is not None:
+            metric_entry["step"] = step
+            metric_entry["timestamp"] = time.time()
+        
+        self.metrics[key].append(metric_entry)
+    
+    def set_tag(self, key: str, value: str):
+        """Set a tag"""
+        self.tags[key] = str(value)
+    
+    def log_artifact(self, artifact_path: str, artifact_subdir: str = None):
+        """Log an artifact (copy file to results directory)"""
+        import shutil
+        
+        artifact_path = Path(artifact_path)
+        if not artifact_path.exists():
+            logger.warning(f"Artifact not found: {artifact_path}")
+            return
+        
+        # Determine destination
+        if artifact_subdir:
+            dest_dir = self.run_dir / artifact_subdir
+        else:
+            dest_dir = self.run_dir
+        
+        dest_dir.mkdir(parents=True, exist_ok=True)
+        dest_path = dest_dir / artifact_path.name
+        
+        shutil.copy2(artifact_path, dest_path)
+        self.artifacts.append({
+            "source": str(artifact_path),
+            "destination": str(dest_path),
+            "subdir": artifact_subdir
+        })
+        logger.debug(f"Artifact copied: {artifact_path} -> {dest_path}")
+    
+    def save_results(self):
+        """Save all logged data to JSON files"""
+        import json
+        
+        # Save parameters
+        with open(self.run_dir / "params.json", "w") as f:
+            json.dump(self.params, f, indent=2)
+        
+        # Save metrics
+        with open(self.run_dir / "metrics.json", "w") as f:
+            json.dump(self.metrics, f, indent=2)
+        
+        # Save tags
+        with open(self.run_dir / "tags.json", "w") as f:
+            json.dump(self.tags, f, indent=2)
+        
+        # Save artifacts info
+        with open(self.run_dir / "artifacts.json", "w") as f:
+            json.dump(self.artifacts, f, indent=2)
+        
+        # Create summary file
+        summary = {
+            "run_name": self.run_name,
+            "run_directory": str(self.run_dir),
+            "start_time": self.tags.get("start_time", "unknown"),
+            "status": self.tags.get("status", "unknown"),
+            "model_type": self.tags.get("model_type", "unknown"),
+            "num_params": len(self.params),
+            "num_metrics": len(self.metrics),
+            "num_artifacts": len(self.artifacts)
+        }
+        
+        # Add key metrics to summary
+        key_metrics = ["final_map_50", "final_map_50_95", "training_duration_seconds"]
+        for metric in key_metrics:
+            if metric in self.metrics and self.metrics[metric]:
+                summary[metric] = self.metrics[metric][-1]["value"]
+        
+        with open(self.run_dir / "summary.json", "w") as f:
+            json.dump(summary, f, indent=2)
+        
+        logger.info(f"Results saved to: {self.run_dir}")
+        logger.info(f"Summary: {summary}")
+
+# Global results logger instance
+local_logger = None
 
 # ===== Configuration Constants =====
 # These will be overridden by config or can be used as defaults
@@ -251,17 +362,22 @@ names: ['person']  # class names
 
 
 def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_root: Path) -> tuple[str, Optional[Dict[str, Any]]]:
-    """Execute RT-DETR training within MLflow context"""
-    active_run = mlflow.active_run()
-    if not active_run:
-        logger.critical("run_rtdetr_training_job called without an active MLflow run!")
-        return "FAILED", None
+    """Execute RT-DETR training with local results storage"""
+    global local_logger
     
-    run_id = active_run.info.run_id
+    # Create run name based on timestamp
+    run_name = f"rtdetr_run_{time.strftime('%Y%m%d_%H%M%S')}"
+    results_dir = project_root / "training_results"
+    local_logger = LocalResultsLogger(results_dir, run_name)
+    
+    # Set initial tags
+    local_logger.set_tag("start_time", time.strftime('%Y-%m-%d %H:%M:%S'))
+    local_logger.set_tag("status", "started")
+    
     job_status = "FAILED"
     final_metrics = {"status": "initialized"}
     
-    logger.info(f"--- Starting RT-DETR Training Job (Run ID: {run_id}) ---")
+    logger.info(f"--- Starting RT-DETR Training Job (Local Storage: {run_name}) ---")
     
     # Extract training parameters
     training_config = run_config.get("training", {})
@@ -274,25 +390,25 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
     output_dir.mkdir(exist_ok=True)
     
     try:
-        # Log parameters
-        logger.info("Logging parameters to MLflow...")
-        log_params_recursive(run_config)
-        mlflow.log_param("environment.actual_device", str(device))
-        mlflow.log_param("training.epochs", epochs)
-        mlflow.log_param("training.batch_size", batch_size)
-        mlflow.log_param("training.image_size", image_size)
-        mlflow.set_tag("model_type", "rtdetr")
-        mlflow.set_tag("engine_type", "ultralytics")
-        log_git_info()
+        # Log parameters locally
+        logger.info("Logging parameters to local storage...")
+        # log_params_recursive(run_config)  # Commented out - MLflow dependency
+        local_logger.log_param("environment.actual_device", str(device))
+        local_logger.log_param("training.epochs", epochs)
+        local_logger.log_param("training.batch_size", batch_size)
+        local_logger.log_param("training.image_size", image_size)
+        local_logger.set_tag("model_type", "rtdetr")
+        local_logger.set_tag("engine_type", "ultralytics")
+        # log_git_info()  # Commented out - MLflow dependency
         
         # Create dataset
         logger.info("Creating COCO format dataset...")
         images_dir, labels_dir = create_coco_format_data(run_config, output_dir)
         dataset_yaml = create_dataset_yaml(output_dir)
         
-        # Log dataset info
-        mlflow.log_param("dataset.images_created", len(list(images_dir.glob("*.jpg"))))
-        mlflow.log_param("dataset.labels_created", len(list(labels_dir.glob("*.txt"))))
+        # Log dataset info locally
+        local_logger.log_param("dataset.images_created", len(list(images_dir.glob("*.jpg"))))
+        local_logger.log_param("dataset.labels_created", len(list(labels_dir.glob("*.txt"))))
         
         # Initialize RT-DETR model with optional pretrained weights
         model_config = run_config.get("model", {})
@@ -314,8 +430,8 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                 training_config["lr0"] = fine_tune_lr
                 logger.info(f"Using fine-tuning learning rate: {fine_tune_lr}")
             
-            mlflow.log_param("training.mode", "fine_tuning")
-            mlflow.log_param("training.pretrained_weights", str(pretrained_weights))
+            local_logger.log_param("training.mode", "fine_tuning")
+            local_logger.log_param("training.pretrained_weights", str(pretrained_weights))
         else:
             if pretrained_weights:
                 logger.warning(f"Pretrained weights file not found: {pretrained_weights}")
@@ -323,10 +439,10 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
             
             logger.info(f"Loading default pretrained model: {model_size}")
             model = RTDETR(model_size)  # Load default pretrained RT-DETR model
-            mlflow.log_param("training.mode", "from_pretrained")
-            mlflow.log_param("training.base_model", model_size)
+            local_logger.log_param("training.mode", "from_pretrained")
+            local_logger.log_param("training.base_model", model_size)
         
-        mlflow.log_param("environment.type", environment_type)
+        local_logger.log_param("environment.type", environment_type)
         logger.info(f"Model initialized for {environment_type} environment")
         
         # Configure Ultralytics settings to disable built-in tracking
@@ -434,10 +550,10 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         logger.info(f"  Advanced features: Multi-scale={training_params.get('multi_scale')}, Auto-augment={training_params.get('auto_augment')}")
         
         # Add training callback to log metrics per epoch (like FasterRCNN)
-        class MLflowCallback:
-            """Custom callback to log training metrics to MLflow like FasterRCNN training"""
-            def __init__(self, run_id):
-                self.run_id = run_id
+        class LocalResultsCallback:
+            """Custom callback to log training metrics to local storage like FasterRCNN training"""
+            def __init__(self, local_logger):
+                self.local_logger = local_logger
                 self.best_map = -1.0
                 self.best_epoch = -1
                 self.epoch_times = []
@@ -455,37 +571,37 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                     if hasattr(self, 'epoch_start_time'):
                         epoch_duration = time.time() - self.epoch_start_time
                         self.epoch_times.append(epoch_duration)
-                        mlflow.log_metric("epoch_duration_seconds", epoch_duration, step=trainer.epoch)
-                        mlflow.log_metric("avg_epoch_duration_seconds", sum(self.epoch_times) / len(self.epoch_times), step=trainer.epoch)
+                        self.local_logger.log_metric("epoch_duration_seconds", epoch_duration, step=trainer.epoch)
+                        self.local_logger.log_metric("avg_epoch_duration_seconds", sum(self.epoch_times) / len(self.epoch_times), step=trainer.epoch)
                     
                     # Log basic training metrics
                     if hasattr(trainer, 'loss_items') and trainer.loss_items is not None:
                         # Log training losses (similar to avg_train_loss, avg_train_comp_losses)
                         total_loss = float(trainer.loss_items.mean()) if hasattr(trainer.loss_items, 'mean') else float(sum(trainer.loss_items) / len(trainer.loss_items))
-                        mlflow.log_metric("epoch_train_loss_avg", total_loss, step=trainer.epoch)
+                        self.local_logger.log_metric("epoch_train_loss_avg", total_loss, step=trainer.epoch)
                         
                         # Log component losses if available (mimicking FasterRCNN component losses)
                         if len(trainer.loss_items) >= 3:  # Typical RT-DETR losses: box, cls, dfl
-                            mlflow.log_metric("epoch_train_loss_box", float(trainer.loss_items[0]), step=trainer.epoch)
-                            mlflow.log_metric("epoch_train_loss_cls", float(trainer.loss_items[1]), step=trainer.epoch)
-                            mlflow.log_metric("epoch_train_loss_dfl", float(trainer.loss_items[2]), step=trainer.epoch)
+                            self.local_logger.log_metric("epoch_train_loss_box", float(trainer.loss_items[0]), step=trainer.epoch)
+                            self.local_logger.log_metric("epoch_train_loss_cls", float(trainer.loss_items[1]), step=trainer.epoch)
+                            self.local_logger.log_metric("epoch_train_loss_dfl", float(trainer.loss_items[2]), step=trainer.epoch)
                             
                             # Additional RT-DETR specific losses if available
                             if len(trainer.loss_items) >= 4:
-                                mlflow.log_metric("epoch_train_loss_additional", float(trainer.loss_items[3]), step=trainer.epoch)
+                                self.local_logger.log_metric("epoch_train_loss_additional", float(trainer.loss_items[3]), step=trainer.epoch)
                     
                     # Log learning rate (similar to FasterRCNN)
                     if hasattr(trainer.optimizer, 'param_groups') and trainer.optimizer.param_groups:
                         current_lr = trainer.optimizer.param_groups[0]['lr']
-                        mlflow.log_metric("learning_rate", current_lr, step=trainer.epoch)
+                        self.local_logger.log_metric("learning_rate", current_lr, step=trainer.epoch)
                         
                         # Log momentum if available (similar to FasterRCNN optimizer tracking)
                         if 'momentum' in trainer.optimizer.param_groups[0]:
                             momentum = trainer.optimizer.param_groups[0]['momentum']
-                            mlflow.log_metric("momentum", momentum, step=trainer.epoch)
+                            self.local_logger.log_metric("momentum", momentum, step=trainer.epoch)
                         elif 'betas' in trainer.optimizer.param_groups[0]:  # For Adam-like optimizers
                             beta1 = trainer.optimizer.param_groups[0]['betas'][0]
-                            mlflow.log_metric("beta1", beta1, step=trainer.epoch)
+                            self.local_logger.log_metric("beta1", beta1, step=trainer.epoch)
                     
                     # Log GPU memory usage if available
                     try:
@@ -493,8 +609,8 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                         if torch.cuda.is_available():
                             memory_allocated = torch.cuda.memory_allocated() / 1024**3  # GB
                             memory_reserved = torch.cuda.memory_reserved() / 1024**3  # GB
-                            mlflow.log_metric("gpu_memory_allocated_gb", memory_allocated, step=trainer.epoch)
-                            mlflow.log_metric("gpu_memory_reserved_gb", memory_reserved, step=trainer.epoch)
+                            self.local_logger.log_metric("gpu_memory_allocated_gb", memory_allocated, step=trainer.epoch)
+                            self.local_logger.log_metric("gpu_memory_reserved_gb", memory_reserved, step=trainer.epoch)
                     except Exception:
                         pass  # Ignore if CUDA not available
             
@@ -518,62 +634,62 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                     
                     # Primary mAP metrics (core COCO metrics)
                     if 'metrics/mAP50-95(B)' in metrics:
-                        mlflow.log_metric("eval_map", float(metrics['metrics/mAP50-95(B)']), step=epoch)
-                        mlflow.log_metric("eval_map_50_95", float(metrics['metrics/mAP50-95(B)']), step=epoch)  # Compatibility
+                        self.local_logger.log_metric("eval_map", float(metrics['metrics/mAP50-95(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_map_50_95", float(metrics['metrics/mAP50-95(B)']), step=epoch)  # Compatibility
                     
                     if 'metrics/mAP50(B)' in metrics:
-                        mlflow.log_metric("eval_map_50", float(metrics['metrics/mAP50(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_map_50", float(metrics['metrics/mAP50(B)']), step=epoch)
                     
                     if 'metrics/mAP75(B)' in metrics:
-                        mlflow.log_metric("eval_map_75", float(metrics['metrics/mAP75(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_map_75", float(metrics['metrics/mAP75(B)']), step=epoch)
                     
                     # Object size-specific mAP metrics (Small/Medium/Large objects)
                     if 'metrics/mAP50-95(S)' in metrics:
-                        mlflow.log_metric("eval_map_small", float(metrics['metrics/mAP50-95(S)']), step=epoch)
+                        self.local_logger.log_metric("eval_map_small", float(metrics['metrics/mAP50-95(S)']), step=epoch)
                     
                     if 'metrics/mAP50-95(M)' in metrics:
-                        mlflow.log_metric("eval_map_medium", float(metrics['metrics/mAP50-95(M)']), step=epoch)
+                        self.local_logger.log_metric("eval_map_medium", float(metrics['metrics/mAP50-95(M)']), step=epoch)
                     
                     if 'metrics/mAP50-95(L)' in metrics:
-                        mlflow.log_metric("eval_map_large", float(metrics['metrics/mAP50-95(L)']), step=epoch)
+                        self.local_logger.log_metric("eval_map_large", float(metrics['metrics/mAP50-95(L)']), step=epoch)
                     
                     # mAR (mean Average Recall) metrics at different detection limits
                     if 'metrics/mAR1(B)' in metrics:
-                        mlflow.log_metric("eval_mar_1", float(metrics['metrics/mAR1(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_mar_1", float(metrics['metrics/mAR1(B)']), step=epoch)
                     
                     if 'metrics/mAR10(B)' in metrics:
-                        mlflow.log_metric("eval_mar_10", float(metrics['metrics/mAR10(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_mar_10", float(metrics['metrics/mAR10(B)']), step=epoch)
                     
                     if 'metrics/mAR100(B)' in metrics:
-                        mlflow.log_metric("eval_mar_100", float(metrics['metrics/mAR100(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_mar_100", float(metrics['metrics/mAR100(B)']), step=epoch)
                     
                     # Object size-specific mAR metrics
                     if 'metrics/mAR100(S)' in metrics:
-                        mlflow.log_metric("eval_mar_small", float(metrics['metrics/mAR100(S)']), step=epoch)
+                        self.local_logger.log_metric("eval_mar_small", float(metrics['metrics/mAR100(S)']), step=epoch)
                     
                     if 'metrics/mAR100(M)' in metrics:
-                        mlflow.log_metric("eval_mar_medium", float(metrics['metrics/mAR100(M)']), step=epoch)
+                        self.local_logger.log_metric("eval_mar_medium", float(metrics['metrics/mAR100(M)']), step=epoch)
                     
                     if 'metrics/mAR100(L)' in metrics:
-                        mlflow.log_metric("eval_mar_large", float(metrics['metrics/mAR100(L)']), step=epoch)
+                        self.local_logger.log_metric("eval_mar_large", float(metrics['metrics/mAR100(L)']), step=epoch)
                     
                     # Class-specific metrics (Person detection)
                     # RT-DETR provides per-class AP which we can log as eval_ap_person
                     for key, value in metrics.items():
                         if isinstance(value, (int, float)) and 'class' in key.lower():
                             # Log per-class AP (for person class)
-                            mlflow.log_metric("eval_ap_person", float(value), step=epoch)
+                            self.local_logger.log_metric("eval_ap_person", float(value), step=epoch)
                             break  # Single class model, so first class metric is person
                     
                     # Additional comprehensive metrics logging
                     if 'metrics/precision(B)' in metrics:
-                        mlflow.log_metric("eval_precision", float(metrics['metrics/precision(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_precision", float(metrics['metrics/precision(B)']), step=epoch)
                     
                     if 'metrics/recall(B)' in metrics:
-                        mlflow.log_metric("eval_recall", float(metrics['metrics/recall(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_recall", float(metrics['metrics/recall(B)']), step=epoch)
                     
                     if 'metrics/F1(B)' in metrics:
-                        mlflow.log_metric("eval_f1_score", float(metrics['metrics/F1(B)']), step=epoch)
+                        self.local_logger.log_metric("eval_f1_score", float(metrics['metrics/F1(B)']), step=epoch)
                     
                     # Log any additional metrics that don't match standard patterns
                     for key, value in metrics.items():
@@ -585,30 +701,30 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                             # Generic metric mapping for any remaining metrics
                             metric_name = key.lower().replace('(b)', '').replace('(s)', '').replace('(m)', '').replace('(l)', '')
                             metric_name = metric_name.replace('metrics/', 'eval_').replace(' ', '_').replace('/', '_')
-                            mlflow.log_metric(f"epoch_{metric_name}", float(value), step=epoch)
+                            self.local_logger.log_metric(f"epoch_{metric_name}", float(value), step=epoch)
                     
                     # Track best model (similar to best_metric_value in FasterRCNN)
                     current_map = metrics.get('metrics/mAP50-95(B)', -1.0)
                     if current_map > self.best_map:
                         self.best_map = current_map
                         self.best_epoch = epoch
-                        mlflow.set_tag("best_map_50_95", f"{self.best_map:.4f}")
-                        mlflow.set_tag("best_epoch", str(self.best_epoch))
+                        self.local_logger.set_tag("best_map_50_95", f"{self.best_map:.4f}")
+                        self.local_logger.set_tag("best_epoch", str(self.best_epoch))
                         logger.info(f"New best mAP@0.5:0.95: {self.best_map:.4f} at epoch {self.best_epoch}")
                         
                         # Log additional best metrics (comprehensive)
                         if 'metrics/mAP50(B)' in metrics:
-                            mlflow.set_tag("best_map_50", f"{float(metrics['metrics/mAP50(B)'])::.4f}")
+                            self.local_logger.set_tag("best_map_50", f"{float(metrics['metrics/mAP50(B)'])::.4f}")
                         if 'metrics/mAP75(B)' in metrics:
-                            mlflow.set_tag("best_map_75", f"{float(metrics['metrics/mAP75(B)'])::.4f}")
+                            self.local_logger.set_tag("best_map_75", f"{float(metrics['metrics/mAP75(B)'])::.4f}")
                         if 'metrics/precision(B)' in metrics:
-                            mlflow.set_tag("best_precision", f"{float(metrics['metrics/precision(B)'])::.4f}")
+                            self.local_logger.set_tag("best_precision", f"{float(metrics['metrics/precision(B)'])::.4f}")
                         if 'metrics/recall(B)' in metrics:
-                            mlflow.set_tag("best_recall", f"{float(metrics['metrics/recall(B)'])::.4f}")
+                            self.local_logger.set_tag("best_recall", f"{float(metrics['metrics/recall(B)'])::.4f}")
                     
                     # Log validation loss if available (similar to avg_val_loss in FasterRCNN)
                     if hasattr(validator, 'loss') and validator.loss is not None:
-                        mlflow.log_metric("epoch_val_loss_avg", float(validator.loss), step=epoch)
+                        self.local_logger.log_metric("epoch_val_loss_avg", float(validator.loss), step=epoch)
                     
                     # Debug summary of what was logged
                     logger.info(f"Epoch {epoch} metrics logging completed successfully!")
@@ -623,11 +739,11 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                     elif validator.trainer.epoch is None:
                         logger.warning("   - validator.trainer.epoch is None")
         
-        # Setup MLflow callback using Ultralytics callback system
-        callback = MLflowCallback(run_id)
+        # Setup local results callback using Ultralytics callback system
+        callback = LocalResultsCallback(local_logger)
         
         # Register callback with model instead of passing as parameter
-        logger.info("Registering MLflow callbacks with Ultralytics model...")
+        logger.info("Registering local results callbacks with Ultralytics model...")
         model.add_callback('on_train_epoch_start', callback.on_train_epoch_start)
         model.add_callback('on_train_epoch_end', callback.on_train_epoch_end)
         model.add_callback('on_val_end', callback.on_val_end)
@@ -638,27 +754,27 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         else:
             logger.warning("Model.callbacks attribute not found - callback registration may have failed")
         
-        logger.info("Starting RT-DETR training with MLflow logging (similar to FasterRCNN)...")
-        logger.info("MLflow callbacks registered with Ultralytics model")
+        logger.info("Starting RT-DETR training with local results logging (similar to FasterRCNN)...")
+        logger.info("Local results callbacks registered with Ultralytics model")
         start_time_training = time.time()
         
         results = model.train(**training_params)
         
         training_duration = time.time() - start_time_training
         logger.info(f"--- RT-DETR Training Finished in {training_duration:.2f} seconds ---")
-        mlflow.log_metric("training_duration_seconds", training_duration)
+        local_logger.log_metric("training_duration_seconds", training_duration)
         
         # Log final training results (enhanced like FasterRCNN)
         if hasattr(results, 'maps') and len(results.maps) > 0:
             if len(results.maps) >= 2:
-                mlflow.log_metric("final_map_50", results.maps[0])
-                mlflow.log_metric("final_map_50_95", results.maps[1])
+                local_logger.log_metric("final_map_50", results.maps[0])
+                local_logger.log_metric("final_map_50_95", results.maps[1])
                 logger.info(f"Final mAP@0.5: {results.maps[0]:.4f}")
                 logger.info(f"Final mAP@0.5:0.95: {results.maps[1]:.4f}")
                 final_metrics = {"map_50": results.maps[0], "map_50_95": results.maps[1]}
             else:
                 # Only one metric available (likely mAP@0.5:0.95)
-                mlflow.log_metric("final_map_50_95", results.maps[0])
+                local_logger.log_metric("final_map_50_95", results.maps[0])
                 logger.info(f"Final mAP@0.5:0.95: {results.maps[0]:.4f}")
                 final_metrics = {"map_50_95": results.maps[0]}
         
@@ -675,10 +791,10 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         logger.info(f"   Experiment dir: {experiment_dir}")
         logger.info(f"   Experiment dir exists: {experiment_dir.exists()}")
         
-        # Log best model parameters
+        # Log best model parameters locally
         if callback.best_epoch >= 0:
-            mlflow.log_param("best_model_epoch", callback.best_epoch)
-            mlflow.log_param("best_model_map_50_95", f"{callback.best_map:.4f}")
+            local_logger.log_param("best_model_epoch", callback.best_epoch)
+            local_logger.log_param("best_model_map_50_95", f"{callback.best_map:.4f}")
         
         # Enhanced directory discovery and debugging
         if experiment_dir.exists():
@@ -711,7 +827,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                 # Log best model checkpoint (similar to best_model_path in FasterRCNN)
                 if best_pt.exists():
                     logger.info(f"Logging best model checkpoint: {best_pt.name} ({best_pt.stat().st_size} bytes)")
-                    mlflow.log_artifact(str(best_pt), artifact_path="checkpoints")
+                    local_logger.log_artifact(str(best_pt), "checkpoints")
                     
                     # Copy to structured checkpoint dir (like FasterRCNN)
                     best_checkpoint_path = checkpoint_dir / f"ckpt_best_map_50_95.pt"
@@ -724,7 +840,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                 # Log latest model checkpoint (similar to latest_path in FasterRCNN)
                 if last_pt.exists():
                     logger.info(f"Logging latest model checkpoint: {last_pt.name} ({last_pt.stat().st_size} bytes)")
-                    mlflow.log_artifact(str(last_pt), artifact_path="checkpoints/latest")
+                    local_logger.log_artifact(str(last_pt), "checkpoints/latest")
                     
                     # Copy to structured checkpoint dir
                     latest_checkpoint_path = checkpoint_dir / f"ckpt_latest.pt"
@@ -758,7 +874,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                         artifact_path = "training_results"
                     
                     try:
-                        mlflow.log_artifact(str(artifact_file), artifact_path=artifact_path)
+                        local_logger.log_artifact(str(artifact_file), artifact_path)
                         artifact_count += 1
                         logger.debug(f"   Logged: {artifact_file.name} → {artifact_path}")
                     except Exception as e:
@@ -779,7 +895,10 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
                 logger.error(f"Output directory not found: {output_dir}")
         
         job_status = "FINISHED"
+        local_logger.set_tag("status", "completed")
+        local_logger.save_results()
         logger.info("RT-DETR training completed successfully!")
+        logger.info(f"Results saved to: {local_logger.run_dir}")
         
     except KeyboardInterrupt:
         logger.warning("Training interrupted by user")
@@ -787,7 +906,10 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
         raise
     except Exception as e:
         logger.critical(f"Training failed: {e}", exc_info=True)
-        mlflow.set_tag("error", str(e))
+        local_logger.set_tag("error", str(e))
+        # Save results even on failure
+        local_logger.set_tag("status", "failed")
+        local_logger.save_results()
         job_status = "FAILED"
         raise
     
@@ -869,9 +991,9 @@ def main():
     single_run_config = {
         "environment": config.get("environment", {}),
         "data": config.get("data", {}),
-        "mlflow": config.get(
-            "mlflow", {}
-        ),  # Pass mlflow config for experiment name etc.
+        # "mlflow": config.get(
+        #     "mlflow", {}
+        # ),  # Pass mlflow config for experiment name etc.
         "model": job_config_entry["model"],
         "training": job_config_entry["training"],
         # Add run name if specified at top level, otherwise runner uses model tag
@@ -880,13 +1002,13 @@ def main():
         ),
     }
 
-    # 2. Setup MLflow Experiment
-    experiment_id = setup_mlflow_experiment(
-        config, default_experiment_name="Default RT-DETR Training"
-    )
-    if not experiment_id:
-        logger.critical("MLflow experiment setup failed. Exiting.")
-        sys.exit(1)
+    # 2. Setup MLflow Experiment (COMMENTED OUT)
+    # experiment_id = setup_mlflow_experiment(
+    #     config, default_experiment_name="Default RT-DETR Training"
+    # )
+    # if not experiment_id:
+    #     logger.critical("MLflow experiment setup failed. Exiting.")
+    #     sys.exit(1)
 
     # 3. Set Seed & Determine Device
     seed = config.get("environment", {}).get("seed", int(time.time()))
@@ -899,83 +1021,87 @@ def main():
     logger.info(f"Resolved base device: {resolved_device}")
 
     try:
-        # 4. Start ONE MLflow Run
+        # 4. Execute training job directly (MLflow context removed)
         run_name = single_run_config["run_name"]
-        with mlflow.start_run(run_name=run_name, experiment_id=experiment_id) as run:
-            run_id = run.info.run_id
-            logger.info(f"--- MLflow Run Started ---")
-            logger.info(f"Run Name: {run_name}")
-            logger.info(f"Run ID: {run_id}")
-            logger.info(f"Experiment ID: {experiment_id}")
-            logger.info(f"Tracking URI: {mlflow.get_tracking_uri()}")
+        logger.info(f"--- Starting RT-DETR Training ---")
+        logger.info(f"Run Name: {run_name}")
+        logger.info(f"Device: {resolved_device}")
 
-            # Log the original config file path as an artifact
-            orig_conf_path = PROJECT_ROOT / config_path_str
-            if orig_conf_path.is_file():
-                mlflow.log_artifact(str(orig_conf_path), artifact_path="config")
+        # Log the original config file path as an artifact (handled by local logger)
+        # orig_conf_path = PROJECT_ROOT / config_path_str
+        # if orig_conf_path.is_file():
+        #     mlflow.log_artifact(str(orig_conf_path), artifact_path="config")
 
-            # 5. Execute the single training job using the RT-DETR runner function
-            run_status, final_metrics = run_rtdetr_training_job(
-                run_config=single_run_config,
-                device=str(resolved_device),
-                project_root=PROJECT_ROOT,
-            )
-            final_status = run_status
+        # 5. Execute the single training job using the RT-DETR runner function
+        run_status, final_metrics = run_rtdetr_training_job(
+            run_config=single_run_config,
+            device=str(resolved_device),
+            project_root=PROJECT_ROOT,
+        )
+        final_status = run_status
 
     except KeyboardInterrupt:
         logger.warning("Training run interrupted by user (KeyboardInterrupt).")
         final_status = "KILLED"
-        if run_id:
-            try:
-                MlflowClient().set_terminated(run_id, status="KILLED")
-            except Exception as term_err:
-                logger.warning(
-                    f"Could not terminate run {run_id} after KILLED: {term_err}"
-                )
+        # MLflow termination commented out
+        # if run_id:
+        #     try:
+        #         MlflowClient().set_terminated(run_id, status="KILLED")
+        #     except Exception as term_err:
+        #         logger.warning(
+        #             f"Could not terminate run {run_id} after KILLED: {term_err}"
+        #         )
     except Exception as e:
         logger.critical(f"An uncaught error occurred: {e}", exc_info=True)
         final_status = "FAILED"
-        if run_id:
-            try:
-                client = MlflowClient()
-                client.set_tag(run_id, "run_outcome", "Crashed - Outer")
-                client.set_terminated(run_id, status="FAILED")
-            except Exception as term_err:
-                logger.warning(
-                    f"Could not terminate run {run_id} after CRASHED: {term_err}"
-                )
+        # MLflow error handling commented out
+        # if run_id:
+        #     try:
+        #         client = MlflowClient()
+        #         client.set_tag(run_id, "run_outcome", "Crashed - Outer")
+        #         client.set_terminated(run_id, status="FAILED")
+        #     except Exception as term_err:
+        #         logger.warning(
+        #             f"Could not terminate run {run_id} after CRASHED: {term_err}"
+        #         )
     finally:
         logger.info(f"--- Finalizing Run (Final Status: {final_status}) ---")
+        # MLflow artifact logging and run termination commented out
         # Log the main script log file to the run if it exists
-        if run_id and log_file.exists():
-            try:
-                for handler in logging.getLogger().handlers:
-                    handler.flush()
-                client = MlflowClient()
-                client.log_artifact(run_id, str(log_file), artifact_path="logs")
-                logger.info(
-                    f"Main training log file '{log_file.name}' logged as artifact to run {run_id}."
-                )
-            except Exception as log_artifact_err:
-                logger.warning(
-                    f"Could not log main training log file artifact '{log_file}': {log_artifact_err}"
-                )
+        # if run_id and log_file.exists():
+        #     try:
+        #         for handler in logging.getLogger().handlers:
+        #             handler.flush()
+        #         client = MlflowClient()
+        #         client.log_artifact(run_id, str(log_file), artifact_path="logs")
+        #         logger.info(
+        #             f"Main training log file '{log_file.name}' logged as artifact to run {run_id}."
+        #         )
+        #     except Exception as log_artifact_err:
+        #         logger.warning(
+        #             f"Could not log main training log file artifact '{log_file}': {log_artifact_err}"
+        #         )
 
         # Ensure run termination status is set correctly
-        active_run = mlflow.active_run()
-        if active_run and active_run.info.run_id == run_id:
-            logger.info(
-                f"Ensuring MLflow run {run_id} is terminated with status {final_status}."
-            )
-            mlflow.end_run(status=final_status)
-        elif run_id:
-            try:
-                logger.warning(
-                    f"Attempting to terminate run {run_id} outside active context with status {final_status}."
-                )
-                MlflowClient().set_terminated(run_id, status=final_status)
-            except Exception as term_err:
-                logger.error(f"Failed to terminate run {run_id} forcefully: {term_err}")
+        # active_run = mlflow.active_run()
+        # if active_run and active_run.info.run_id == run_id:
+        #     logger.info(
+        #         f"Ensuring MLflow run {run_id} is terminated with status {final_status}."
+        #     )
+        #     mlflow.end_run(status=final_status)
+        # elif run_id:
+        #     try:
+        #         logger.warning(
+        #             f"Attempting to terminate run {run_id} outside active context with status {final_status}."
+        #         )
+        #         MlflowClient().set_terminated(run_id, status=final_status)
+        #     except Exception as term_err:
+        #         logger.error(f"Failed to terminate run {run_id} forcefully: {term_err}")
+        
+        # Log completion status
+        logger.info(f"Training completed with status: {final_status}")
+        if local_logger:
+            logger.info(f"All results saved to: {local_logger.run_dir}")
 
     logger.info(f"--- RT-DETR Training Run Completed (Status: {final_status}) ---")
     exit_code = 0 if final_status == "FINISHED" else 1
