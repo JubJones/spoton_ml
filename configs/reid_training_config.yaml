@@ -1,0 +1,17 @@
+data:
+  base_path: "D:/MTMMC"
+  scenes_to_include:
+    # Clone of RT-DETR scenes/cameras for ReID usage
+    - scene_id: "s01"
+      camera_ids: ["c01", "c02", "c03", "c04", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
+    - scene_id: "s10"
+      camera_ids: ["c01", "c02", "c03", "c04", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
+    - scene_id: "s14"
+      camera_ids: ["c01", "c02", "c03", "c04", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c04", "c05", "c06", "c07", "c08", "c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
+  use_data_subset: false
+  data_subset_fraction: 0.1
+  val_split_ratio: 0.2
+  num_workers: 2
+
