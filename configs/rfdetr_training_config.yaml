@@ -1,0 +1,105 @@
+mlflow:
+  experiment_name: "MTMMC Detection Training (RF-DETR)"
+  
+  # Enhanced MLflow tracking configuration
+  tracking_uri: null  # Uses local mlruns/ directory if null
+  artifact_location: null  # Uses default artifact store if null
+  
+  # Enable comprehensive logging
+  log_system_metrics: true
+  log_model_artifacts: true
+  log_confusion_matrix: true
+  log_training_curves: true
+
+environment:
+  device: "auto" # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+  
+  # Environment validation settings
+  validate_gpu: true  # Validate GPU capabilities before training
+  validate_dataset: true  # Validate dataset integrity before training
+  memory_fraction: 0.9  # GPU memory fraction to use (0.0-1.0)
+  
+  # Performance optimization
+  enable_mixed_precision: true
+  enable_gradient_checkpointing: false
+  num_workers_auto: true  # Auto-determine optimal num_workers
+
+debug:
+  enable_box_debug: false # Set to true to enable detailed box processing debug logs
+
+data:
+  # base_path: "/Volumes/HDD/MTMMC"
+  base_path: "D:/MTMMC" # Adjust to your dataset location
+  # Define scenes and cameras to USE for this entire training run
+  # The dataset loader will combine data from these sources.
+  scenes_to_include:
+    - scene_id: "s10" # Factory
+      camera_ids: ["c09", "c12", "c13", "c16"] # Use all cameras from the scene
+    - scene_id: "s47" # Campus
+      camera_ids: ["c01", "c02", "c03", "c05"] # Use all cameras from the scene
+
+  # Data subsetting for faster runs/debugging
+  use_data_subset: true # Set to false to use all data
+  data_subset_fraction: 0.1 # Use 10% of the data if use_data_subset is true
+
+  # Train/Val split
+  val_split_ratio: 0.2 # Proportion of (sub)set to use for validation
+  num_workers: 2 # Number of workers for DataLoader
+
+# --- Models to Train (Child Runs) ---
+models_to_train:
+  # --- RF-DETR Configuration ---
+  - model:
+      type: "rfdetr"
+      name_tag: "RFDETR_Medium" # Used for run naming if run_name isn't specified below
+      size: "medium" # Options: "base", "small", "medium", "large", "nano"
+      num_classes: 1 # person class only (0-based indexing, no background class needed)
+
+    training:
+      engine: "rfdetr"
+      epochs: 100
+      batch_size: 4
+      learning_rate: 5e-5 # FIXED: Reduced from 1e-4 to prevent gradient explosion
+      lr_encoder: 1e-4 # FIXED: Reduced from 1.5e-4, should be <= base LR
+      weight_decay: 1e-4
+      
+      # RF-DETR specific parameters
+      grad_accum_steps: 4 # Gradient accumulation steps
+      warmup_epochs: 5 # FIXED: Added warmup from 0 to stabilize early training
+      lr_drop: 80 # FIXED: Drop LR earlier (was 100) to prevent late-stage instability
+      ema_decay: 0.999 # FIXED: Increased from 0.993 for more stability
+      ema_tau: 100 # EMA tau parameter
+      lr_vit_layer_decay: 0.9 # FIXED: Increased from 0.8 for more conservative decay
+      lr_component_decay: 0.8 # FIXED: Increased from 0.7 for stability
+      drop_path: 0.0 # Drop path rate (keep disabled for stability)
+      
+      # STABILITY FIXES: Add gradient monitoring and clipping
+      gradient_clip_val: 1.0 # Add gradient clipping to prevent explosions
+      gradient_clip_algorithm: "norm" # Use gradient norm clipping
+      monitor_gradients: true # Enable gradient monitoring
+      log_gradient_stats: true # Log gradient statistics
+      
+      # Data augmentation
+      multi_scale: true # Enable multi-scale training
+      expanded_scales: true # Enable expanded scales
+      
+      # Early stopping - IMPROVED
+      early_stopping: true # FIXED: Enable early stopping to prevent overtraining
+      early_stopping_patience: 20 # FIXED: Reduced from 50 to catch instability earlier
+      early_stopping_min_delta: 0.005 # FIXED: Increased threshold for more robust stopping
+      
+      # Checkpointing
+      checkpoint_interval: 10 # Save checkpoint every N epochs
+      
+      # Disable test dataset requirement
+      run_test: false
+      
+      # Advanced options (uncomment to use)
+      # use_ema: true # Use exponential moving average
+      # ia_bce_loss: true # Use IA BCE loss
+      # cls_loss_coef: 1.0 # Classification loss coefficient
+      # num_select: 300 # Number of selected queries
+      # group_detr: 13 # Group DETR parameter
+      # square_resize_div_64: true # Square resize divisible by 64
+      # do_random_resize_via_padding: false # Random resize via padding

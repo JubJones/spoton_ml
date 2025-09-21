@@ -1,0 +1,54 @@
+[project]
+name = "spoton-ml"
+version = "0.1.0"
+description = "Multi-camera multi-target tracking with detection and re-identification"
+requires-python = ">=3.11"
+dependencies = [
+    # Core ML frameworks (note: torch/torchvision/torchaudio need special installation)
+    "torchmetrics[detection]",
+    "ultralytics",
+    "rfdetr",
+    "boxmot",
+    
+    # Explainability
+    "captum",
+    
+    # Visualization
+    "matplotlib",
+    "seaborn",
+    
+    # MLOps & Core
+    "mlflow",
+    "dagshub",
+    "pyyaml",
+    "opencv-python",
+    
+    # Utilities
+    "numpy",
+    "pandas",
+    "pillow",
+    "scipy",
+    "motmetrics",
+    
+    # Testing
+    "pytest",
+    
+    # Feature extraction
+    "faiss-cpu",
+    "umap-learn",
+]
+
+[project.optional-dependencies]
+torch = [
+    # Install with: pip3 install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu124
+    "torch",
+    "torchvision", 
+    "torchaudio",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src"]

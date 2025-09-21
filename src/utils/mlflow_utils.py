@@ -172,3 +172,67 @@ def download_best_model_checkpoint(run_id: str, destination_dir: Path) -> Option
     except Exception as e:
         logger.error(f"An unexpected error occurred downloading checkpoint for run {run_id}: {e}", exc_info=True)
         return None
+
+
+def log_metrics(metrics: Dict[str, Any]) -> None:
+    """
+    Log metrics to the current MLflow run.
+    
+    Args:
+        metrics: Dictionary of metric name to value mappings
+    """
+    try:
+        if mlflow.active_run():
+            for key, value in metrics.items():
+                if isinstance(value, (int, float)):
+                    mlflow.log_metric(key, value)
+                else:
+                    logger.warning(f"Skipping non-numeric metric '{key}': {value}")
+        else:
+            logger.warning("No active MLflow run to log metrics to")
+    except Exception as e:
+        logger.error(f"Failed to log metrics: {e}")
+
+
+def log_params(params: Dict[str, Any]) -> None:
+    """
+    Log parameters to the current MLflow run.
+    
+    Args:
+        params: Dictionary of parameter name to value mappings
+    """
+    try:
+        if mlflow.active_run():
+            for key, value in params.items():
+                # Convert non-string values to strings for MLflow
+                str_value = str(value)
+                # MLflow has a 250 character limit for parameter values
+                if len(str_value) > 250:
+                    str_value = str_value[:247] + "..."
+                mlflow.log_param(key, str_value)
+        else:
+            logger.warning("No active MLflow run to log parameters to")
+    except Exception as e:
+        logger.error(f"Failed to log parameters: {e}")
+
+
+def log_artifacts(artifact_path: str, artifact_directory: Optional[str] = None) -> None:
+    """
+    Log artifacts to the current MLflow run.
+    
+    Args:
+        artifact_path: Path to the file or directory to log as artifact
+        artifact_directory: Optional directory within the artifact repository to store artifacts
+    """
+    try:
+        if mlflow.active_run():
+            if Path(artifact_path).is_file():
+                mlflow.log_artifact(artifact_path, artifact_directory)
+            elif Path(artifact_path).is_dir():
+                mlflow.log_artifacts(artifact_path, artifact_directory)
+            else:
+                logger.warning(f"Artifact path does not exist: {artifact_path}")
+        else:
+            logger.warning("No active MLflow run to log artifacts to")
+    except Exception as e:
+        logger.error(f"Failed to log artifacts: {e}")

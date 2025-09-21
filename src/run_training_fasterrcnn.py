@@ -21,7 +21,7 @@ try:
     from src.utils.logging_utils import setup_logging
     from src.utils.mlflow_utils import setup_mlflow_experiment
     from src.utils.device_utils import get_selected_device
-    from src.training.runner import run_single_training_job
+    from src.components.training.runner import run_single_training_job
 except ImportError as e:
     print(f"Error importing local modules in run_training_fasterrcnn.py: {e}")
     print("Please ensure all modules exist and PYTHONPATH is set correctly.")

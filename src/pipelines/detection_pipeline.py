@@ -6,9 +6,9 @@ from typing import Dict, Any, Optional, Tuple, List
 
 import torch
 
-from src.data.loader import FrameDataLoader
+from src.components.data.loader import FrameDataLoader
 # --- Corrected Import ---
-from src.evaluation.metrics import (
+from src.components.evaluation.metrics import (
     load_ground_truth,
     calculate_detection_metrics_with_map,
     GroundTruthData,
@@ -18,7 +18,7 @@ from src.evaluation.metrics import (
     MAPTarget
 )
 # --- End Correction ---
-from src.detection.strategies import get_strategy, DetectionTrackingStrategy
+from src.components.detection.strategies import get_strategy, DetectionTrackingStrategy
 
 logger = logging.getLogger(__name__)
 

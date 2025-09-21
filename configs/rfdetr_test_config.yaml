@@ -1,0 +1,72 @@
+# RF-DETR Test Configuration - No Checkpoint Required
+# For testing the fixed RF-DETR detection analysis pipeline
+
+# --- Model Configuration ---
+# No checkpoint path - will use fallback model for testing
+local_model_path: ""
+
+model:
+  type: "rfdetr"
+  size: "base"
+  num_classes: 2  # person + background
+
+# --- MLflow Configuration ---
+mlflow:
+  experiment_name: "RF-DETR Test Analysis"
+
+# --- Environment Configuration ---
+environment:
+  device: "cpu"  # Force CPU for testing
+  seed: 42
+
+# --- Data Configuration ---
+data:
+  # Use dummy data for testing
+  base_path: "."
+  
+  # Minimal scene configuration for testing
+  scenes_to_include:
+    - scene_id: "test_scene"
+      camera_ids: ["test_camera"]
+  
+  # Use subset for quick testing
+  use_data_subset: true
+  data_subset_fraction: 0.1
+  val_split_ratio: 0.2
+  num_workers: 1
+
+# --- Analysis Configuration ---
+analysis:
+  # Output directory
+  output_dir: "outputs/rfdetr_test_analysis"
+  
+  # Detection thresholds
+  iou_threshold: 0.5
+  confidence_threshold: 0.3  # Lower threshold for testing
+  
+  # Failure collection strategy
+  collect_one_per_person: true
+  
+  # Visualization settings
+  colors:
+    ground_truth: [255, 0, 0]  # RED for ground truth
+    detected: [0, 0, 255]      # BLUE for detected
+    
+  # Analysis parameters
+  frame_sample_percent: 10.0  # Sample more frames for testing
+  
+  # Reporting
+  generate_html_report: true
+  generate_performance_matrix: true
+  generate_failure_visualizations: true
+  
+  # Environmental analysis
+  analyze_lighting_conditions: true
+  analyze_crowd_density: true
+  analyze_occlusion_levels: true
+  
+  # Export settings
+  export_formats:
+    - "json"  # Export results as JSON
+    - "csv"   # Export tabular data as CSV
+    - "html"  # Generate HTML report

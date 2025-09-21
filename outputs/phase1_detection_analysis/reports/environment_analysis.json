@@ -1,0 +1,85 @@
+{
+  "best_environments": [
+    {
+      "rank": 1,
+      "scene_camera": "s10/c16",
+      "f1_score": 0.9920382165605096,
+      "precision": 1.0259493986725885,
+      "recall": 0.9602970713251436
+    },
+    {
+      "rank": 2,
+      "scene_camera": "s47/c05",
+      "f1_score": 0.9773387565368971,
+      "precision": 1.008877159309021,
+      "recall": 0.9477124183006536
+    },
+    {
+      "rank": 3,
+      "scene_camera": "s47/c03",
+      "f1_score": 0.9638464405516214,
+      "precision": 0.985474108944183,
+      "recall": 0.9431476872908264
+    },
+    {
+      "rank": 4,
+      "scene_camera": "s10/c09",
+      "f1_score": 0.9459842430425665,
+      "precision": 0.9468966299784409,
+      "recall": 0.9450736126840317
+    },
+    {
+      "rank": 5,
+      "scene_camera": "s47/c02",
+      "f1_score": 0.940547095117515,
+      "precision": 0.9693449974270382,
+      "recall": 0.9134109171515655
+    }
+  ],
+  "worst_environments": [
+    {
+      "rank": 8,
+      "scene_camera": "s10/c09",
+      "f1_score": 0.9459842430425665,
+      "precision": 0.9468966299784409,
+      "recall": 0.9450736126840317
+    },
+    {
+      "rank": 7,
+      "scene_camera": "s47/c02",
+      "f1_score": 0.940547095117515,
+      "precision": 0.9693449974270382,
+      "recall": 0.9134109171515655
+    },
+    {
+      "rank": 6,
+      "scene_camera": "s10/c13",
+      "f1_score": 0.9357124114405668,
+      "precision": 0.9185986604842864,
+      "recall": 0.953475935828877
+    },
+    {
+      "rank": 5,
+      "scene_camera": "s47/c01",
+      "f1_score": 0.9337919174548581,
+      "precision": 0.9593639575971732,
+      "recall": 0.9095477386934674
+    },
+    {
+      "rank": 4,
+      "scene_camera": "s10/c12",
+      "f1_score": 0.850815064643058,
+      "precision": 0.8503370786516854,
+      "recall": 0.8512935883014623
+    }
+  ],
+  "lighting_analysis": {
+    "day": 4,
+    "transition": 4
+  },
+  "density_analysis": {
+    "low": 3,
+    "medium": 4,
+    "high": 1
+  }
+}

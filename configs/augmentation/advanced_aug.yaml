@@ -1,0 +1,171 @@
+# Advanced Augmentation Configuration for RF-DETR Training
+# Comprehensive augmentation suite for maximum robustness
+
+augmentation:
+  # Pipeline configuration
+  pipeline_type: "advanced"
+  global_severity: 0.6
+  max_augmentations_per_image: null  # No limit
+  shuffle_order: true
+  
+  # Geometric augmentations
+  geometric:
+    enabled: true
+    horizontal_flip:
+      probability: 0.5
+      severity: 1.0
+    
+    random_scale:
+      probability: 0.7
+      severity: 0.5
+      scale_min: 0.8
+      scale_max: 1.2
+      maintain_aspect_ratio: true
+    
+    random_translation:
+      probability: 0.5
+      severity: 0.4
+      max_translation_ratio: 0.1
+    
+    perspective_transform:
+      probability: 0.3
+      severity: 0.3
+      max_rotation_degrees: 5
+      max_perspective_ratio: 0.05
+  
+  # Photometric augmentations
+  photometric:
+    enabled: true
+    brightness_contrast:
+      probability: 0.8
+      severity: 0.5
+      brightness_range: [-0.2, 0.2]
+      contrast_range: [0.8, 1.2]
+    
+    color_jitter:
+      probability: 0.6
+      severity: 0.4
+      hue_range: [-10, 10]
+      saturation_range: [0.85, 1.15]
+    
+    gaussian_noise:
+      probability: 0.3
+      severity: 0.3
+      noise_std_range: [5, 25]
+    
+    motion_blur:
+      probability: 0.25
+      severity: 0.4
+      kernel_size_range: [3, 15]
+      blur_types: ["linear", "radial"]
+    
+    gamma_correction:
+      probability: 0.4
+      severity: 0.4
+      gamma_range: [0.7, 1.3]
+  
+  # Advanced occlusion augmentations
+  occlusion:
+    enabled: true
+    random_erasing:
+      probability: 0.5
+      severity: 0.4
+      area_range: [0.02, 0.15]
+      aspect_ratio_range: [0.3, 3.3]
+      fill_mode: "random"
+    
+    mosaic_augmentation:
+      probability: 0.3
+      severity: 0.5
+      mosaic_ratio: 0.5
+      border_value: 114
+    
+    copy_paste:
+      probability: 0.2
+      severity: 0.3
+      max_paste_instances: 3
+      scale_range: [0.8, 1.2]
+      blend_mode: "alpha"
+  
+  # Advanced surveillance augmentations
+  surveillance:
+    enabled: true
+    crowd_simulation:
+      probability: 0.3
+      severity: 0.4
+      max_density_multiplier: 2.5
+      placement_strategy: "realistic"
+      depth_simulation: true
+    
+    lighting_variation:
+      probability: 0.7
+      severity: 0.5
+      time_of_day_effects: true
+      shadow_simulation: true
+      directional_lighting: true
+      scenarios: ["dawn", "noon", "dusk", "night", "artificial"]
+    
+    weather_effects:
+      probability: 0.2
+      severity: 0.3
+      weather_types: ["rain", "fog", "haze"]
+      preserve_person_visibility: true
+
+# Training integration
+training_integration:
+  # Data loader settings
+  apply_to_training: true
+  apply_to_validation: false
+  
+  # Performance settings
+  num_workers: 4
+  pin_memory: true
+  prefetch_factor: 3
+  
+  # Advanced caching
+  cache_augmented_samples: false  # Memory intensive
+  cache_size_mb: 0
+  
+  # Batch-level optimizations
+  batch_augmentation: false  # Apply different augmentations per batch item
+
+# Quality control
+quality_control:
+  # Augmentation limits per category
+  max_geometric_augs_per_image: 3
+  max_photometric_augs_per_image: 4
+  max_occlusion_augs_per_image: 2
+  max_surveillance_augs_per_image: 2
+  
+  # Bbox preservation
+  min_bbox_area_after_aug: 100  # Minimum bbox area in pixels
+  min_bbox_visibility_ratio: 0.3  # Minimum visible portion of bbox
+  
+  # Image quality preservation
+  min_image_contrast: 0.1
+  max_noise_level: 0.15
+
+# Validation and monitoring
+validation:
+  # Performance thresholds
+  max_processing_time_ms: 100
+  min_bbox_retention_ratio: 0.7
+  
+  # Quality checks
+  validate_bbox_integrity: true
+  validate_image_quality: true
+  log_augmentation_stats: true
+  save_augmentation_samples: true  # Save sample augmented images
+  
+  # Monitoring
+  validation_frequency: 50
+  sample_save_frequency: 500
+  sample_save_path: "logs/augmentation_samples"
+
+# Adaptive augmentation (experimental)
+adaptive:
+  enabled: false
+  adjust_severity_based_on_loss: false
+  severity_adjustment_rate: 0.05
+  loss_threshold_increase_severity: 2.0
+  loss_threshold_decrease_severity: 0.5

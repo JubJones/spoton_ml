@@ -1,0 +1,62 @@
+# RT-DETR Factory Environment - Simplified Configuration
+# Just change data path, epochs, and model size - everything else uses smart defaults
+
+mlflow:
+  experiment_name: "RT-DETR Factory Training"
+
+environment:
+  device: "auto" 
+  seed: 42
+  type: "factory"
+
+data:
+  base_path: "D:/MTMMC"
+  
+  # Factory scenes and cameras
+  scenes_to_include:
+    # Start with single scene for progressive training
+    - scene_id: "s01"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    
+    # Uncomment additional scenes for multi-scene training:
+    - scene_id: "s10"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s11"
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s13"
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s16"
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s18"
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s20"
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+  
+  # For testing stability - set to false for full dataset
+  use_data_subset: true
+  data_subset_fraction: 1
+
+models_to_train:
+  - model:
+      type: "rtdetr"
+      name_tag: "RTDETR_Factory_Simple"
+      model_size: "rtdetr-l.pt"  # OPTIONS: rtdetr-l.pt, rtdetr-x.pt
+      
+    training:
+      # CORE PARAMETERS - Only change these
+      epochs: 50
+      batch_size: 4
+      imgsz: 640
+      
+      # STABILITY SETTINGS - Keep these for reliable training
+      lr0: 0.0001          # Fixed learning rate (prevents NaN losses)
+      deterministic: false  # Avoids CUDA conflicts  
+      amp: false           # Prevents numerical instability
+      
+      # SIMPLE SETTINGS - Use defaults for everything else
+      project: "checkpoints"
+      name: "rtdetr_factory"
+      exist_ok: true
+      single_cls: true     # Person detection only
+
+run_name: "RT-DETR Factory Simple Training"

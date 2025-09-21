@@ -23,7 +23,7 @@ try:
     from src.utils.config_loader import load_config
     from src.utils.logging_utils import setup_logging
     from src.utils.mlflow_utils import setup_mlflow_experiment
-    from src.core.runner import log_git_info
+    from src.utils.runner import log_git_info
     from src.pipelines.eda_pipeline import EDAPipeline, EDAResults # Import the pipeline and results type
 except ImportError as e:
     print(f"Error importing local modules: {e}\nPlease ensure PYTHONPATH is set correctly.")

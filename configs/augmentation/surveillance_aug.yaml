@@ -1,0 +1,215 @@
+# Surveillance-Optimized Augmentation Configuration for RF-DETR Training
+# Specifically tuned for MTMMC dataset and surveillance person detection
+
+augmentation:
+  # Pipeline configuration
+  pipeline_type: "surveillance_optimized"
+  global_severity: 0.5
+  max_augmentations_per_image: 4
+  shuffle_order: true
+  
+  # Conservative geometric augmentations for surveillance
+  geometric:
+    enabled: true
+    horizontal_flip:
+      probability: 0.5
+      severity: 1.0
+    
+    random_scale:
+      probability: 0.6
+      severity: 0.4
+      scale_min: 0.85
+      scale_max: 1.15
+      maintain_aspect_ratio: true
+    
+    random_translation:
+      probability: 0.4
+      severity: 0.3
+      max_translation_ratio: 0.08
+    
+    # Minimal perspective changes for surveillance realism
+    perspective_transform:
+      probability: 0.2
+      severity: 0.2
+      max_rotation_degrees: 3
+      max_perspective_ratio: 0.03
+  
+  # Surveillance-optimized photometric augmentations
+  photometric:
+    enabled: true
+    # Emphasize lighting variations (day/night surveillance)
+    brightness_contrast:
+      probability: 0.9
+      severity: 0.6
+      brightness_range: [-0.3, 0.3]  # Wide range for surveillance lighting
+      contrast_range: [0.7, 1.4]
+    
+    # Conservative color adjustments
+    color_jitter:
+      probability: 0.4
+      severity: 0.3
+      hue_range: [-8, 8]
+      saturation_range: [0.9, 1.1]
+    
+    # Important for surveillance camera quality simulation
+    gaussian_noise:
+      probability: 0.4
+      severity: 0.4
+      noise_std_range: [3, 20]
+    
+    # Gamma correction for exposure variations
+    gamma_correction:
+      probability: 0.6
+      severity: 0.5
+      gamma_range: [0.6, 1.5]
+    
+    # Motion blur for moving persons
+    motion_blur:
+      probability: 0.2
+      severity: 0.3
+      kernel_size_range: [3, 9]
+      blur_types: ["linear"]  # Focus on linear motion
+  
+  # Surveillance-specific occlusion handling
+  occlusion:
+    enabled: true
+    # Random erasing for partial occlusions
+    random_erasing:
+      probability: 0.6
+      severity: 0.5
+      area_range: [0.01, 0.12]  # Smaller areas for person-scale occlusions
+      aspect_ratio_range: [0.5, 2.0]  # Conservative aspect ratios
+      fill_mode: "mean"  # More natural than random
+    
+    # Copy-paste for crowd scenarios
+    copy_paste:
+      probability: 0.25
+      severity: 0.4
+      max_paste_instances: 2  # Conservative for surveillance
+      overlap_threshold: 0.2  # Allow some overlap for crowded scenes
+      blend_mode: "alpha"
+      preserve_aspect_ratio: true
+    
+    # Disable mosaic for surveillance (less realistic)
+    mosaic_augmentation:
+      probability: 0.0
+      enabled: false
+  
+  # Advanced surveillance-specific augmentations
+  surveillance:
+    enabled: true
+    
+    # Lighting variations (critical for surveillance)
+    lighting_variation:
+      probability: 0.8
+      severity: 0.6
+      time_of_day_effects: true
+      shadow_simulation: true
+      directional_lighting: true
+      # Focus on realistic surveillance scenarios
+      scenarios: ["dawn", "noon", "dusk", "artificial"]  # Skip "night" for MTMMC
+    
+    # Conservative crowd simulation
+    crowd_simulation:
+      probability: 0.25
+      severity: 0.3
+      max_density_multiplier: 2.0  # Conservative for MTMMC scenes
+      placement_strategy: "realistic"
+      depth_simulation: true
+      occlusion_simulation: true
+    
+    # Subtle weather effects
+    weather_effects:
+      probability: 0.15
+      severity: 0.2
+      weather_types: ["haze"]  # Subtle effects for indoor/outdoor mix
+      preserve_person_visibility: true
+
+# MTMMC-specific training integration
+training_integration:
+  # Optimized for MTMMC dataset characteristics
+  apply_to_training: true
+  apply_to_validation: false
+  
+  # Performance settings tuned for surveillance data
+  num_workers: 3
+  pin_memory: true
+  prefetch_factor: 2
+  
+  # Scene-specific handling
+  scene_balanced_sampling: true
+  cross_scene_augmentation: true
+  
+  # Camera-specific considerations
+  preserve_camera_characteristics: true
+  multi_camera_consistency: false
+
+# Surveillance-specific quality control
+quality_control:
+  # Person detection specific constraints
+  min_person_bbox_area: 200  # Minimum person bbox area
+  min_person_visibility: 0.4  # Minimum person visibility after augmentation
+  max_person_distortion: 0.3  # Maximum acceptable person shape distortion
+  
+  # Surveillance realism constraints
+  preserve_surveillance_realism: true
+  max_lighting_change: 0.7  # Maximum lighting change factor
+  min_scene_coherence: 0.8   # Maintain scene visual coherence
+  
+  # Person-specific quality metrics
+  person_aspect_ratio_limits: [1.5, 4.0]  # Valid person aspect ratios
+  person_size_consistency: true
+
+# Validation and monitoring for surveillance
+validation:
+  # Performance thresholds
+  max_processing_time_ms: 75
+  min_bbox_retention_ratio: 0.8
+  
+  # Surveillance-specific quality checks
+  validate_person_detectability: true
+  validate_scene_realism: true
+  validate_lighting_consistency: true
+  
+  # Monitoring and logging
+  log_augmentation_stats: true
+  save_augmentation_samples: true
+  track_person_statistics: true
+  
+  # Validation frequency
+  validation_frequency: 100
+  sample_save_frequency: 200
+  sample_save_path: "logs/surveillance_augmentation_samples"
+
+# MTMMC dataset specific settings
+mtmmc_specific:
+  # Scene handling
+  factory_scene_augmentations:
+    enhanced_artificial_lighting: true
+    industrial_noise_simulation: true
+    
+  campus_scene_augmentations:
+    natural_lighting_variations: true
+    outdoor_weather_effects: true
+  
+  # Camera positioning considerations
+  preserve_camera_angles: true
+  simulate_camera_variations: false
+  
+  # Person behavior modeling
+  person_movement_patterns: "surveillance"  # vs "natural"
+  group_behavior_simulation: true
+
+# Adaptive parameters for surveillance
+adaptive_surveillance:
+  # Adjust augmentations based on scene density
+  density_adaptive_augmentation: true
+  sparse_scene_crowd_boost: 1.5
+  dense_scene_crowd_reduction: 0.7
+  
+  # Time-of-day adaptive parameters
+  time_adaptive_lighting: false  # Keep consistent for training
+  
+  # Performance adaptive adjustments
+  performance_based_severity: false
+  target_processing_time_ms: 60

@@ -13,8 +13,8 @@ import torchvision
 from tqdm import tqdm
 
 from src.utils.mlflow_utils import download_best_model_checkpoint, setup_mlflow_experiment
-from src.training.runner import get_fasterrcnn_model, get_transform
-from src.data.training_dataset import MTMMCDetectionDataset
+from src.components.training.runner import get_fasterrcnn_model, get_transform
+from src.components.data.training_dataset import MTMMCDetectionDataset
 
 logger = logging.getLogger(__name__)
 
@@ -134,7 +134,7 @@ def run_analysis(config: Dict[str, Any], device: torch.device, project_root: Pat
     logger.info("Loading model architecture...")
     model = get_fasterrcnn_model(config)
     logger.info(f"Loading model weights from: {model_path}")
-    checkpoint = torch.load(model_path, map_location=device)
+    checkpoint = torch.load(model_path, map_location=device, weights_only=False)
     # Adjust for potential key mismatch if saved differently
     state_dict_key = 'model_state_dict'
     if state_dict_key not in checkpoint:

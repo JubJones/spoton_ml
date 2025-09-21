@@ -22,16 +22,16 @@ except ImportError:
     pd = None; mm = None; REQUESTED_MOT_METRICS = []; MOTMETRICS_AVAILABLE = False
     logging.warning("`motmetrics` or `pandas` not found. Install them (`pip install motmetrics pandas`) for standard MOT metrics.")
 
-from src.data.loader import FrameDataLoader
-from src.evaluation.metrics import load_ground_truth, GroundTruthData
+from src.components.data.loader import FrameDataLoader
+from src.components.evaluation.metrics import load_ground_truth, GroundTruthData
 from src.utils.reid_device_utils import get_reid_device_specifier_string
-from src.tracking_backend_logic.common_types_adapter import (
+from src.components.tracking.common_types_adapter import (
     CameraID, TrackID, GlobalID, FeatureVector, TrackKey, BoundingBoxXYXY, HandoffTriggerInfo
 )
-from src.tracking_backend_logic.botsort_tracker_adapter import BotSortTrackerAdapter
-from src.tracking_backend_logic.camera_tracker_factory_adapter import CameraTrackerFactoryAdapter
-from src.tracking_backend_logic.reid_manager_adapter import ReIDManagerAdapter
-from src.tracking_backend_logic.handoff_logic_adapter import HandoffLogicAdapter
+from src.components.tracking.botsort_tracker_adapter import BotSortTrackerAdapter
+from src.components.tracking.camera_tracker_factory_adapter import CameraTrackerFactoryAdapter
+from src.components.tracking.reid_manager_adapter import ReIDManagerAdapter
+from src.components.tracking.handoff_logic_adapter import HandoffLogicAdapter
 
 logger = logging.getLogger(__name__)
 TrackingReidResultSummary = Dict[str, Any]

@@ -1,0 +1,115 @@
+# Model Comparison Configuration
+# Compare initial vs trained detection models (FasterRCNN or RF-DETR)
+
+# --- Model Configuration ---
+# Specify the model type to compare
+model:
+  type: "fasterrcnn"  # Options: "fasterrcnn", "rfdetr"
+  
+  # FasterRCNN specific settings
+  backbone_weights: "FasterRCNN_ResNet50_FPN_Weights.DEFAULT"
+  num_classes: 2  # person + background
+  trainable_backbone_layers: 3
+  
+  # RF-DETR specific settings (used if type is "rfdetr")
+  size: "base"  # Options: "base", "small", "medium", "large", "nano"
+  # num_classes: 1  # person class only (0-based indexing)
+
+# --- Trained Model Path ---
+# Path to the trained model checkpoint to compare against initial weights
+# Leave empty to compare initial model against itself (for testing)
+trained_model_path: "checkpoints/7af7b38617994e41adbd761df223cf93/ckpt_best_eval_map_50.pth"
+
+# --- MLflow Configuration ---
+mlflow:
+  experiment_name: "Model Comparison - FasterRCNN vs Initial"
+
+# --- Environment Configuration ---
+environment:
+  device: "cpu"  # Options: "auto", "cuda:0", "mps", "cpu"
+  seed: 42
+
+# --- Data Configuration ---
+data:
+  # Update base_path to point to your MTMMC dataset
+  base_path: "D:/MTMMC"
+  
+  # Include all available scenes for comprehensive comparison
+  scenes_to_include:
+    - scene_id: "s10"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+  
+  # Use full validation set for accurate comparison
+  use_data_subset: false
+  data_subset_fraction: 1.0
+  
+  # Validation split
+  val_split_ratio: 0.2
+  num_workers: 2
+
+# --- Evaluation Configuration ---
+evaluation:
+  # Detection thresholds
+  confidence_threshold: 0.5
+  iou_threshold: 0.5
+  
+  # Metrics to calculate
+  calculate_map: true
+  calculate_precision_recall: true
+  calculate_inference_time: true
+  
+  # Evaluation settings
+  max_detections_per_image: 100
+  evaluation_batch_size: 1  # Process one image at a time for fair comparison
+
+# --- Comparison Configuration ---
+comparison:
+  # Output directory for comparison results
+  output_dir: "outputs/model_comparison"
+  
+  # Visualization settings
+  generate_charts: true
+  generate_detailed_report: true
+  
+  # Comparison parameters
+  significance_threshold: 0.05  # mAP improvement threshold for "significant"
+  
+  # Export formats
+  export_formats:
+    - "json"    # Detailed results
+    - "csv"     # Tabular data
+    - "html"    # Human-readable report
+    - "png"     # Visualization charts
+  
+  # Report settings
+  include_sample_predictions: true
+  sample_size: 10  # Number of sample predictions to include
+  
+  # Performance analysis
+  analyze_failure_cases: true
+  analyze_improvement_patterns: true
+  
+# --- Additional Analysis ---
+analysis:
+  # Per-scene comparison
+  per_scene_analysis: true
+  
+  # Per-camera comparison
+  per_camera_analysis: true
+  
+  # Confidence score analysis
+  confidence_analysis: true
+  confidence_bins: [0.3, 0.5, 0.7, 0.9]
+  
+  # Box size analysis
+  box_size_analysis: true
+  size_categories: ["small", "medium", "large"]  # Based on bbox area
+  
+  # Lighting condition analysis (if available)
+  lighting_analysis: false  # Set to true if lighting metadata available
+  
+  # Speed analysis
+  speed_analysis: true
+  warmup_iterations: 5  # Number of warmup iterations for speed testing

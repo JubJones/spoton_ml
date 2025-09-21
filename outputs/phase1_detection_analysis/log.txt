@@ -1,0 +1,74 @@
+(spoton_ml) PS C:\Users\jwizzedPC\Downloads\temp_spoton\spoton_ml> python src/run_phase1_analysis.py
+2025-07-27 14:39:33 [INFO] src.utils.logging_utils: Logging initialized. Log file: C:\Users\jwizzedPC\Downloads\temp_spoton\spoton_ml\logs\phase1_analysis_run_20250727_143933.log
+2025-07-27 14:39:33 [INFO] __main__: === Starting Phase 1: Per-Scenario/Camera Detection Analysis ===
+2025-07-27 14:39:33 [INFO] src.utils.config_loader: Successfully loaded configuration from: configs\phase1_analysis_config.yaml
+2025-07-27 14:39:33 [INFO] src.utils.reproducibility: Set seed 42 for random, numpy, torch, and CUDA.
+2025-07-27 14:39:33 [INFO] __main__: Random seed set to: 42
+2025-07-27 14:39:33 [INFO] src.utils.device_utils: --- Determining Device (Requested: 'cpu') ---
+2025-07-27 14:39:33 [INFO] src.utils.device_utils: Selected device: cpu
+2025-07-27 14:39:33 [INFO] __main__: Using device: cpu
+2025-07-27 14:39:33 [INFO] __main__: Starting Phase 1 analysis pipeline...
+2025-07-27 14:39:33 [INFO] src.pipelines.phase1_detection_analysis: Loading validation dataset...
+2025-07-27 14:39:33 [INFO] src.components.data.training_dataset: Loading data from Scene: s10 (Path: D:\MTMMC\train\s10)
+2025-07-27 14:40:18 [INFO] src.components.data.training_dataset: Loading data from Scene: s47 (Path: D:\MTMMC\train\s47)
+2025-07-27 14:41:03 [INFO] src.components.data.training_dataset: Loaded 58896 total unique samples (image path, annotations) before subsetting/splitting.
+2025-07-27 14:41:03 [INFO] src.components.data.training_dataset: Using 11779 samples for validation split.
+2025-07-27 14:41:03 [INFO] src.components.data.training_dataset: MTMMC Dataset 'val' split initialized. Scenes: ['s10', 's47']. Subset: False (100.0%). Number of samples: 11779
+2025-07-27 14:41:03 [INFO] src.pipelines.phase1_detection_analysis: Loading FasterRCNN model from checkpoint...
+2025-07-27 14:41:03 [INFO] src.components.training.runner: Loading FasterRCNN model with weights identifier: FasterRCNN_ResNet50_FPN_Weights.DEFAULT
+2025-07-27 14:41:03 [INFO] src.components.training.runner: Attempting to access weights enum member: DEFAULT
+2025-07-27 14:41:04 [INFO] src.components.training.runner: Model loaded. Output classes: 2. Trainable layers: 3
+2025-07-27 14:41:04 [INFO] src.pipelines.phase1_detection_analysis: Loaded FasterRCNN weights from: checkpoints/7af7b38617994e41adbd761df223cf93/ckpt_best_eval_map_50.pth
+2025-07-27 14:41:04 [INFO] src.pipelines.phase1_detection_analysis: Phase 1 Analysis initialized. Output directory: outputs\phase1_detection_analysis
+2025-07-27 14:41:04 [INFO] src.pipelines.phase1_detection_analysis: Starting Phase 1: Per-Scenario/Camera Detection Analysis
+2025-07-27 14:41:04 [INFO] src.pipelines.phase1_detection_analysis: Found 8 scene/camera combinations
+2025-07-27 14:41:04 [INFO] src.pipelines.phase1_detection_analysis: Analyzing scene: s10, camera: c09
+Processing s10/c09: 100%|████████████████████████████████████████████████████████████████████████████████| 1432/1432 [46:36<00:00,  1.95s/it]
+2025-07-27 15:27:40 [INFO] src.pipelines.phase1_detection_analysis: Completed s10/c09: P=0.947, R=0.945, F1=0.946
+2025-07-27 15:27:40 [INFO] src.pipelines.phase1_detection_analysis: Analyzing scene: s10, camera: c12
+Processing s10/c12: 100%|████████████████████████████████████████████████████████████████████████████████| 1449/1449 [46:34<00:00,  1.93s/it]
+2025-07-27 16:14:15 [INFO] src.pipelines.phase1_detection_analysis: Completed s10/c12: P=0.850, R=0.851, F1=0.851
+2025-07-27 16:14:15 [INFO] src.pipelines.phase1_detection_analysis: Analyzing scene: s10, camera: c13
+Processing s10/c13: 100%|████████████████████████████████████████████████████████████████████████████████| 1457/1457 [47:10<00:00,  1.94s/it]
+2025-07-27 17:01:26 [INFO] src.pipelines.phase1_detection_analysis: Completed s10/c13: P=0.919, R=0.953, F1=0.936
+2025-07-27 17:01:26 [INFO] src.pipelines.phase1_detection_analysis: Analyzing scene: s10, camera: c16
+Processing s10/c16: 100%|████████████████████████████████████████████████████████████████████████████████| 1447/1447 [46:55<00:00,  1.95s/it]
+2025-07-27 17:48:22 [INFO] src.pipelines.phase1_detection_analysis: Completed s10/c16: P=1.026, R=0.960, F1=0.992
+2025-07-27 17:48:22 [INFO] src.pipelines.phase1_detection_analysis: Analyzing scene: s47, camera: c01
+Processing s47/c01: 100%|████████████████████████████████████████████████████████████████████████████████| 1494/1494 [48:43<00:00,  1.96s/it]
+2025-07-27 18:37:06 [INFO] src.pipelines.phase1_detection_analysis: Completed s47/c01: P=0.959, R=0.910, F1=0.934
+2025-07-27 18:37:06 [INFO] src.pipelines.phase1_detection_analysis: Analyzing scene: s47, camera: c02
+Processing s47/c02: 100%|████████████████████████████████████████████████████████████████████████████████| 1522/1522 [49:39<00:00,  1.96s/it]
+2025-07-27 19:26:45 [INFO] src.pipelines.phase1_detection_analysis: Completed s47/c02: P=0.969, R=0.913, F1=0.941
+2025-07-27 19:26:45 [INFO] src.pipelines.phase1_detection_analysis: Analyzing scene: s47, camera: c03
+Processing s47/c03: 100%|████████████████████████████████████████████████████████████████████████████████| 1513/1513 [49:06<00:00,  1.95s/it]
+2025-07-27 20:15:52 [INFO] src.pipelines.phase1_detection_analysis: Completed s47/c03: P=0.985, R=0.943, F1=0.964
+2025-07-27 20:15:52 [INFO] src.pipelines.phase1_detection_analysis: Analyzing scene: s47, camera: c05
+Processing s47/c05: 100%|████████████████████████████████████████████████████████████████████████████████| 1465/1465 [45:59<00:00,  1.88s/it]
+2025-07-27 21:01:52 [INFO] src.pipelines.phase1_detection_analysis: Completed s47/c05: P=1.009, R=0.948, F1=0.977
+2025-07-27 21:01:52 [INFO] src.pipelines.phase1_detection_analysis: Generating failure visualizations with dual-color bounding boxes...       
+Creating failure visualizations: 100%|█████████████████████████████████████████████████████████████████████████| 8/8 [00:04<00:00,  1.76it/s] 
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: Generating performance reports...
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: Performance matrix saved to scenario_performance_matrix.csv
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: HTML report generated: phase1_analysis_report.html
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: Environment analysis saved to environment_analysis.json
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: Performance matrix saved to scenario_performance_matrix.csv
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: HTML report generated: phase1_analysis_report.html
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: Environment analysis saved to environment_analysis.json
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: Generating statistical analysis...
+2025-07-27 21:01:57 [INFO] src.pipelines.phase1_detection_analysis: Performance visualizations saved to performance_analysis.png
+2025-07-27 21:01:57 [INFO] src.pipelines.phase1_detection_analysis: Statistical analysis completed
+2025-07-27 21:01:56 [INFO] src.pipelines.phase1_detection_analysis: Generating statistical analysis...
+2025-07-27 21:01:57 [INFO] src.pipelines.phase1_detection_analysis: Performance visualizations saved to performance_analysis.png
+2025-07-27 21:01:57 [INFO] src.pipelines.phase1_detection_analysis: Statistical analysis completed
+2025-07-27 21:01:57 [INFO] src.pipelines.phase1_detection_analysis: Phase 1 analysis completed successfully
+2025-07-27 21:01:57 [INFO] src.pipelines.phase1_detection_analysis: Results saved to: outputs\phase1_detection_analysis
+2025-07-27 21:01:57 [INFO] src.pipelines.phase1_detection_analysis: Phase 1 Detection Analysis completed successfully!
+2025-07-27 21:01:57 [INFO] src.pipelines.phase1_detection_analysis: Check results in: outputs\phase1_detection_analysis
+2025-07-27 21:01:57 [INFO] __main__: Phase 1 analysis completed successfully!
+2025-07-27 21:01:57 [INFO] __main__: === Phase 1 Analysis Complete (Status: COMPLETED) ===
+2025-07-27 21:01:57 [INFO] __main__: Results saved to: outputs\phase1_detection_analysis
+2025-07-27 21:01:57 [INFO] __main__: Generated outputs:
+2025-07-27 21:01:57 [INFO] __main__:   - failure_images/: Dual-color failure visualizations
+2025-07-27 21:01:57 [INFO] __main__:   - reports/: HTML reports and environment analysis
+2025-07-27 21:01:57 [INFO] __main__:   - statistics/: Performance matrices and CSV data

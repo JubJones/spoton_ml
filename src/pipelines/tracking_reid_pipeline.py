@@ -56,9 +56,9 @@ except ImportError as e:
 # --- Local Imports ---
 # Assume these imports are correct relative to the project structure
 try:
-    from src.data.loader import FrameDataLoader # Reuse detection loader
-    from src.evaluation.metrics import load_ground_truth, GroundTruthData # Reuse GT loader
-    from src.evaluation.tracking_metrics import calculate_tracking_summary # Keep basic summary for now
+    from src.components.data.loader import FrameDataLoader # Reuse detection loader
+    from src.components.evaluation.metrics import load_ground_truth, GroundTruthData # Reuse GT loader
+    from src.components.evaluation.tracking_metrics import calculate_tracking_summary # Keep basic summary for now
     from src.utils.reid_device_utils import get_reid_device_specifier_string
     # Try to import CameraID, define locally if not found
     try: from src.alias_types import CameraID
