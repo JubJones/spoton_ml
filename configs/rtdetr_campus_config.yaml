@@ -39,10 +39,11 @@ models_to_train:
       type: "rtdetr"
       name_tag: "RTDETR_Campus_Simple"
       model_size: "rtdetr-l.pt"  # OPTIONS: rtdetr-l.pt, rtdetr-x.pt
+      # pretrained_weights: "/path/to/your/checkpoints/rtdetr_campus/weights/best.pt"  # Mock path for incremental fine-tune
       
     training:
       # CORE PARAMETERS - Only change these
-      epochs: 50
+      epochs: 80              # Increase total epochs so the extended run adds 30 more
       batch_size: 4
       imgsz: 640
       
@@ -56,5 +57,6 @@ models_to_train:
       name: "rtdetr_campus"
       exist_ok: true
       single_cls: true     # Person detection only
+      fine_tune_lr: 0.00005  # Lower LR when resuming from fine-tuned checkpoint
 
 run_name: "RT-DETR Campus Simple Training"
