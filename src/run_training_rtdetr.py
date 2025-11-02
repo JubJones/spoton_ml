@@ -394,7 +394,7 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
     image_size = training_config.get("image_size", DEFAULT_IMAGE_SIZE)
     
     # Output directory
-    output_dir = project_root / "rtdetr_training_output"
+    output_dir = project_root / "rtdetr_training_output_v2"
     output_dir.mkdir(exist_ok=True)
     
     try:
@@ -546,6 +546,10 @@ def run_rtdetr_training_job(run_config: Dict[str, Any], device: str, project_roo
             'fraction': training_config.get('fraction', 1.0),
             'profile': training_config.get('profile', False),
             'freeze': training_config.get('freeze', None),
+
+            # Validation / inference control
+            'conf': training_config.get('conf', 0.001),
+            'max_det': training_config.get('max_det', 300),
         }
         
         # Remove None values to avoid issues

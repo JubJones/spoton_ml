@@ -231,7 +231,7 @@ def run_rtdetr_training(run_config: Dict[str, Any], device: str) -> str:
     image_size = training_config.get("image_size", DEFAULT_IMAGE_SIZE)
     
     # Output directory
-    output_dir = Path("rtdetr_training_output")
+    output_dir = Path("rtdetr_training_output_v2")
     output_dir.mkdir(exist_ok=True)
     
     try:

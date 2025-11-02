@@ -31,46 +31,71 @@ def setup_mlflow_experiment(config: Dict[str, Any], default_experiment_name: str
     else:
         logger.info(".env file not found, relying on environment or defaults.")
 
-    # Attempt Dagshub initialization first
-    dagshub_initialized = False
-    if dagshub:
-        try:
-            repo_owner = os.getenv("DAGSHUB_REPO_OWNER", "DefaultOwner")
-            repo_name = os.getenv("DAGSHUB_REPO_NAME", "DefaultRepo")
-            dagshub.init(repo_owner=repo_owner, repo_name=repo_name, mlflow=True)
-            logger.info(f"Dagshub initialized for {repo_owner}/{repo_name}.")
-            if mlflow.get_tracking_uri() is not None:
-                logger.info(f"MLflow tracking URI set by Dagshub: {mlflow.get_tracking_uri()}")
-                dagshub_initialized = True
-            else:
-                logger.warning("Dagshub init called but MLflow tracking URI is still None.")
-        except Exception as dag_err:
-            logger.warning(f"Dagshub initialization failed: {dag_err}. Checking MLFLOW_TRACKING_URI.")
+    tracking_mode = mlflow_config.get("tracking_mode", "remote")
+    if isinstance(tracking_mode, str):
+        tracking_mode = tracking_mode.lower()
     else:
-        logger.info("Dagshub library not installed or available. Checking MLFLOW_TRACKING_URI.")
+        logger.warning(f"Unexpected type for mlflow.tracking_mode: {type(tracking_mode)}. Defaulting to 'remote'.")
+        tracking_mode = "remote"
 
-    # Set tracking URI from environment or default to local only if Dagshub didn't set it
-    if not dagshub_initialized:
-        tracking_uri = os.getenv("MLFLOW_TRACKING_URI")
-        if tracking_uri:
-            try:
-                mlflow.set_tracking_uri(tracking_uri)
-                logger.info(f"MLflow tracking URI set from environment variable: {tracking_uri}")
-            except Exception as uri_err:
-                logger.error(f"Failed to set tracking URI from environment variable '{tracking_uri}': {uri_err}. Falling back to local.")
-                dagshub_initialized = False
+    if tracking_mode not in {"local", "remote"}:
+        logger.warning(f"Unknown mlflow.tracking_mode '{tracking_mode}'. Defaulting to 'remote'.")
+        tracking_mode = "remote"
+
+    tracking_uri: Optional[str] = None
+
+    if tracking_mode == "remote":
+        dagshub_initialized = False
+        use_dagshub = mlflow_config.get("use_dagshub", True)
+
+        if use_dagshub:
+            if dagshub:
+                try:
+                    repo_owner = mlflow_config.get("dagshub_repo_owner") or os.getenv("DAGSHUB_REPO_OWNER")
+                    repo_name = mlflow_config.get("dagshub_repo_name") or os.getenv("DAGSHUB_REPO_NAME")
+                    if repo_owner and repo_name:
+                        dagshub.init(repo_owner=repo_owner, repo_name=repo_name, mlflow=True)
+                        logger.info(f"Dagshub initialized for {repo_owner}/{repo_name}.")
+                        current_uri = mlflow.get_tracking_uri()
+                        if current_uri:
+                            logger.info(f"MLflow tracking URI set by Dagshub: {current_uri}")
+                            dagshub_initialized = True
+                        else:
+                            logger.warning("Dagshub init called but MLflow tracking URI is still None.")
+                    else:
+                        logger.info("Dagshub repository information missing; skipping Dagshub initialization.")
+                except Exception as dag_err:
+                    logger.warning(f"Dagshub initialization failed: {dag_err}. Will attempt explicit tracking URI.")
+            else:
+                logger.info("Dagshub library not available. Skipping Dagshub initialization.")
+
+        if not dagshub_initialized:
+            tracking_uri = mlflow_config.get("tracking_uri") or os.getenv("MLFLOW_TRACKING_URI")
+            if tracking_uri:
+                try:
+                    mlflow.set_tracking_uri(tracking_uri)
+                    logger.info(f"MLflow tracking URI set to remote: {tracking_uri}")
+                except Exception as uri_err:
+                    logger.error(f"Failed to set MLflow tracking URI '{tracking_uri}': {uri_err}")
+                    tracking_mode = "local"
+            else:
+                logger.warning("Remote tracking requested but no tracking URI provided. Falling back to local tracking.")
+                tracking_mode = "local"
         else:
-             logger.info("MLFLOW_TRACKING_URI environment variable not found.")
-
+            tracking_uri = mlflow.get_tracking_uri()
 
         current_uri = mlflow.get_tracking_uri()
-        if not dagshub_initialized and (not tracking_uri or current_uri is None or current_uri.startswith("file:")):
-             logger.warning("No remote tracking URI configured (Dagshub/MLFLOW_TRACKING_URI). Using local tracking.")
-             local_mlruns = PROJECT_ROOT / "mlruns"
-             local_mlruns.mkdir(parents=True, exist_ok=True)
-             local_uri = local_mlruns.resolve().as_uri()
-             mlflow.set_tracking_uri(local_uri)
-             logger.info(f"MLflow tracking URI explicitly set to local: {mlflow.get_tracking_uri()}")
+        if tracking_mode == "remote" and (not current_uri or current_uri.startswith("file:")):
+            logger.warning("Remote tracking requested but current MLflow URI is local. Falling back to local tracking.")
+            tracking_mode = "local"
+
+    if tracking_mode == "local":
+        local_mlruns = PROJECT_ROOT / "mlruns"
+        local_mlruns.mkdir(parents=True, exist_ok=True)
+        local_uri = local_mlruns.resolve().as_uri()
+        mlflow.set_tracking_uri(local_uri)
+        tracking_uri = local_uri
+        logger.info(f"MLflow tracking URI set to local storage: {local_uri}")
 
 
     # Set or Create Experiment

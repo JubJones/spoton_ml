@@ -3,6 +3,7 @@
 
 mlflow:
   experiment_name: "RT-DETR Factory Training"
+  tracking_mode: "local"   # Options: local, remote
 
 environment:
   device: "auto" 
@@ -48,6 +49,8 @@ models_to_train:
       epochs: 80              # Increase total epochs so the extended run adds 30 more
       batch_size: 4
       imgsz: 640
+      max_det: 100            # Limit detections per image to keep validation memory bounded
+      conf: 0.01              # Drop very low-confidence boxes during validation
       
       # STABILITY SETTINGS - Keep these for reliable training
       lr0: 0.0001          # Fixed learning rate (prevents NaN losses)
