@@ -45,14 +45,20 @@ models_to_train:
     training:
       # CORE PARAMETERS - Only change these
       epochs: 50              # Increase total epochs so the extended run adds 30 more
-      batch_size: 4
+      batch_size: 2           # Reduced from 4 to save memory
       imgsz: 640
-      
+
+      # MEMORY OPTIMIZATION SETTINGS
+      val_period: 5           # Validate every 5 epochs instead of every epoch
+      plots: false            # Disable memory-intensive plots during validation
+      conf: 0.25              # Higher confidence threshold = fewer predictions
+      split: "train=0.85,val=0.10,test=0.05"  # Smaller validation set
+
       # STABILITY SETTINGS - Keep these for reliable training
       lr0: 0.0001          # Fixed learning rate (prevents NaN losses)
-      deterministic: false  # Avoids CUDA conflicts  
+      deterministic: false  # Avoids CUDA conflicts
       amp: false           # Prevents numerical instability
-      
+
       # SIMPLE SETTINGS - Use defaults for everything else
       project: "checkpoints"
       name: "rtdetr_factory"
