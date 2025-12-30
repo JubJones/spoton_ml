@@ -1,0 +1,61 @@
+# YOLO11-L Campus Environment - Simplified Configuration  
+# Just change data path, epochs, and model size - everything else uses smart defaults
+
+mlflow:
+  experiment_name: "YOLO11-L Campus Training"
+
+environment:
+  device: "auto"
+  seed: 42
+  type: "campus"
+
+data:
+  base_path: "D:/MTMMC"  # UPDATE THIS: Point to your MTMMC dataset
+  
+  # Campus scenes and cameras
+  scenes_to_include:
+    # Start with single scene for progressive training
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+    
+    # Uncomment additional scenes for multi-scene training:
+    # - scene_id: "s35"
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s36"
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s38"
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s39"
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    - scene_id: "s42"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+  
+  # For testing stability - set to false for full dataset
+  use_data_subset: true
+  data_subset_fraction: 1
+
+models_to_train:
+  - model:
+      type: "yolo11"
+      name_tag: "YOLO11L_Campus_Simple"
+      model_size: "yolo11l.pt"  # OPTIONS: yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt
+      
+    training:
+      # CORE PARAMETERS - Only change these
+      epochs: 50              # Increase total epochs so the extended run adds 30 more
+      batch_size: 4
+      imgsz: 640
+      
+      # STABILITY SETTINGS - Keep these for reliable training
+      lr0: 0.0001          # Fixed learning rate (prevents NaN losses)
+      deterministic: false  # Avoids CUDA conflicts
+      amp: false           # Prevents numerical instability
+      
+      # SIMPLE SETTINGS - Use defaults for everything else
+      project: "checkpoints"
+      name: "yolo11_campus"
+      exist_ok: true
+      single_cls: true     # Person detection only
+
+
+run_name: "YOLO11-L Campus Simple Training"
