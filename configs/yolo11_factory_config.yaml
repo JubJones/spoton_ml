@@ -5,19 +5,19 @@ mlflow:
   experiment_name: "YOLO11-L Factory Training"
 
 environment:
-  device: "auto" 
+  device: "auto"
   seed: 42
   type: "factory"
 
 data:
   base_path: "D:/MTMMC"
-  
+
   # Factory scenes and cameras
   scenes_to_include:
     # Start with single scene for progressive training
     - scene_id: "s01"
       camera_ids: ["c09", "c12", "c13", "c16"]
-    
+
     # Uncomment additional scenes for multi-scene training:
     - scene_id: "s10"
       camera_ids: ["c09", "c12", "c13", "c16"]
@@ -31,7 +31,7 @@ data:
     #   camera_ids: ["c09", "c12", "c13", "c16"]
     # - scene_id: "s20"
     #   camera_ids: ["c09", "c12", "c13", "c16"]
-  
+
   # For testing stability - set to false for full dataset
   use_data_subset: true
   data_subset_fraction: 1
@@ -40,29 +40,29 @@ models_to_train:
   - model:
       type: "yolo11"
       name_tag: "YOLO11L_Factory_Simple"
-      model_size: "yolo11l.pt"  # OPTIONS: yolo11n.pt, yolo11s.pt, yolo11m.pt, yolo11l.pt, yolo11x.pt
-      
+      model_size: "yolo11l.pt"
+
     training:
       # CORE PARAMETERS - Only change these
-      epochs: 50              # Increase total epochs so the extended run adds 30 more
-      batch_size: 2           # Reduced from 4 to save memory
+      epochs: 50
+      batch_size: 2
       imgsz: 640
 
       # MEMORY OPTIMIZATION SETTINGS
-      val_period: 5           # Validate every 5 epochs instead of every epoch
-      plots: false            # Disable memory-intensive plots during validation
-      conf: 0.25              # Higher confidence threshold = fewer predictions
-      split: "train=0.85,val=0.10,test=0.05"  # Smaller validation set
+      val_period: 5
+      plots: false
+      conf: 0.25
+      split: "train=0.85,val=0.10,test=0.05"
 
       # STABILITY SETTINGS - Keep these for reliable training
-      lr0: 0.0001          # Fixed learning rate (prevents NaN losses)
-      deterministic: false  # Avoids CUDA conflicts
-      amp: false           # Prevents numerical instability
+      lr0: 0.0001
+      deterministic: false
+      amp: false
 
       # SIMPLE SETTINGS - Use defaults for everything else
       project: "checkpoints"
       name: "yolo11_factory"
       exist_ok: true
-      single_cls: true     # Person detection only
+      single_cls: true
 
 run_name: "YOLO11-L Factory Simple Training"
