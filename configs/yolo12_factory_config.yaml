@@ -1,0 +1,68 @@
+# YOLO12-N Factory Environment - Simplified Configuration
+# Just change data path, epochs, and model size - everything else uses smart defaults
+
+mlflow:
+  experiment_name: "YOLO12-N Factory Training"
+
+environment:
+  device: "auto"
+  seed: 42
+  type: "factory"
+
+data:
+  base_path: "D:/MTMMC"
+
+  # Factory scenes and cameras
+  scenes_to_include:
+    # Start with single scene for progressive training
+    - scene_id: "s01"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+
+    # Uncomment additional scenes for multi-scene training:
+    - scene_id: "s10"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s11"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s13"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s16"
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s18"
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+    # - scene_id: "s20"
+    #   camera_ids: ["c09", "c12", "c13", "c16"]
+
+  # For testing stability - set to false for full dataset
+  use_data_subset: true
+  data_subset_fraction: 1
+
+models_to_train:
+  - model:
+      type: "yolo12"
+      name_tag: "YOLO12N_Factory_Simple"
+      model_size: "yolo12n.pt"
+
+    training:
+      # CORE PARAMETERS - Only change these
+      epochs: 50
+      batch_size: 2
+      imgsz: 640
+
+      # MEMORY OPTIMIZATION SETTINGS
+      val_period: 5
+      plots: false
+      conf: 0.25
+      split: "train=0.85,val=0.10,test=0.05"
+
+      # STABILITY SETTINGS - Keep these for reliable training
+      lr0: 0.0001
+      deterministic: false
+      amp: false
+
+      # SIMPLE SETTINGS - Use defaults for everything else
+      project: "checkpoints"
+      name: "yolo12_factory"
+      exist_ok: true
+      single_cls: true
+
+run_name: "YOLO12-N Factory Simple Training"
