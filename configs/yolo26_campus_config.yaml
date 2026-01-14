@@ -1,0 +1,61 @@
+# YOLO26-N Campus Environment - Simplified Configuration
+# Just change data path, epochs, and model size - everything else uses smart defaults
+
+mlflow:
+  experiment_name: "YOLO26-N Campus Training"
+
+environment:
+  device: "auto"
+  seed: 42
+  type: "campus"
+
+data:
+  base_path: "D:/MTMMC"
+
+  # Campus scenes and cameras
+  scenes_to_include:
+    # Start with single scene for progressive training
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+
+    # Uncomment additional scenes for multi-scene training:
+    # - scene_id: "s35"
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s36"
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s38"
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    # - scene_id: "s39"
+    #   camera_ids: ["c01", "c02", "c03", "c05"]
+    - scene_id: "s42"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+
+  # For testing stability - set to false for full dataset
+  use_data_subset: true
+  data_subset_fraction: 1
+
+models_to_train:
+  - model:
+      type: "yolo26"
+      name_tag: "YOLO26N_Campus_Simple"
+      model_size: "yolo26n.pt"
+
+    training:
+      # CORE PARAMETERS - Only change these
+      epochs: 50
+      batch_size: 2
+      workers: 2
+      imgsz: 640
+
+      # STABILITY SETTINGS - Keep these for reliable training
+      lr0: 0.0001
+      deterministic: false
+      amp: false
+
+      # SIMPLE SETTINGS - Use defaults for everything else
+      project: "checkpoints"
+      name: "yolo26_campus"
+      exist_ok: true
+      single_cls: true
+
+run_name: "YOLO26-N Campus Simple Training"
