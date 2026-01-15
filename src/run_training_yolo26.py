@@ -72,8 +72,16 @@ class PatchedSPPF(original_SPPF):
 
 # Apply the patch
 ultralytics.nn.modules.block.SPPF = PatchedSPPF
-logger = logging.getLogger(__name__)
-logger.info("Applied monkey-patch to SPPF to handle extra arguments in custom YOLO model.")
+
+# Also patch in tasks module where parse_model runs which might have already imported SPPF
+try:
+    import ultralytics.nn.tasks
+    ultralytics.nn.tasks.SPPF = PatchedSPPF
+    logger = logging.getLogger(__name__)
+    logger.info("Applied monkey-patch to ultralytics.nn.modules.block.SPPF and ultralytics.nn.tasks.SPPF")
+except Exception as e:
+    logger = logging.getLogger(__name__)
+    logger.warning(f"Could not patch ultralytics.nn.tasks.SPPF: {e}")
 # ------------------------------------------------------------------
 
 # ===== Configuration Constants =====
