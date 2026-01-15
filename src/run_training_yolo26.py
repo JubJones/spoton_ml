@@ -56,8 +56,25 @@ warnings.filterwarnings("ignore", category=UserWarning, module="torch.utils.data
 warnings.filterwarnings("ignore", category=UserWarning, module="ultralytics")
 
 # Import Ultralytics after logging setup
+import ultralytics.nn.modules.block
 from ultralytics import YOLO
 import ultralytics.utils
+
+# --- Monkey Patch: Fix SPPF Argument Mismatch for Custom Models ---
+# The user's yolo26n.pt seems to pass extra arguments to SPPF (6 instead of 3-4).
+# We patch it to ignore extra arguments.
+original_SPPF = ultralytics.nn.modules.block.SPPF
+
+class PatchedSPPF(original_SPPF):
+    def __init__(self, c1, c2, k=5, *args, **kwargs):
+        # Initialize with only the expected arguments, ignoring extras
+        super().__init__(c1, c2, k)
+
+# Apply the patch
+ultralytics.nn.modules.block.SPPF = PatchedSPPF
+logger = logging.getLogger(__name__)
+logger.info("Applied monkey-patch to SPPF to handle extra arguments in custom YOLO model.")
+# ------------------------------------------------------------------
 
 # ===== Configuration Constants =====
 DEFAULT_BASE_PATH = "D:/MTMMC"  # Default dataset path
