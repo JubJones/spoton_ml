@@ -64,24 +64,35 @@ import ultralytics.utils
 # The user's yolo26n.pt seems to pass extra arguments to SPPF (6 instead of 3-4).
 # We patch it to ignore extra arguments.
 original_SPPF = ultralytics.nn.modules.block.SPPF
+original_C3k2 = ultralytics.nn.modules.block.C3k2
 
 class PatchedSPPF(original_SPPF):
     def __init__(self, c1, c2, k=5, *args, **kwargs):
         # Initialize with only the expected arguments, ignoring extras
         super().__init__(c1, c2, k)
 
+class PatchedC3k2(original_C3k2):
+    def __init__(self, c1, c2, n=1, c3k=False, e=0.5, g=1, shortcut=True):
+        # Fix argument mismatch where g is passed as bool (likely shortcut from older/custom signature)
+        if isinstance(g, bool):
+            shortcut = g
+            g = 1
+        super().__init__(c1, c2, n, c3k, e, g=g, shortcut=shortcut)
+
 # Apply the patch
 ultralytics.nn.modules.block.SPPF = PatchedSPPF
+ultralytics.nn.modules.block.C3k2 = PatchedC3k2
 
-# Also patch in tasks module where parse_model runs which might have already imported SPPF
+# Also patch in tasks module where parse_model runs which might have already imported SPPF/C3k2
 try:
     import ultralytics.nn.tasks
     ultralytics.nn.tasks.SPPF = PatchedSPPF
+    ultralytics.nn.tasks.C3k2 = PatchedC3k2
     logger = logging.getLogger(__name__)
-    logger.info("Applied monkey-patch to ultralytics.nn.modules.block.SPPF and ultralytics.nn.tasks.SPPF")
+    logger.info("Applied monkey-patch to SPPF and C3k2 in ultralytics.nn.modules.block and ultralytics.nn.tasks")
 except Exception as e:
     logger = logging.getLogger(__name__)
-    logger.warning(f"Could not patch ultralytics.nn.tasks.SPPF: {e}")
+    logger.warning(f"Could not patch ultralytics.nn.tasks: {e}")
 # ------------------------------------------------------------------
 
 # ===== Configuration Constants =====
