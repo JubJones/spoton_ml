@@ -44,7 +44,7 @@ models_to_train:
       # CORE PARAMETERS - Only change these
       epochs: 50
       batch_size: 2
-      workers: 2
+      workers: 0
       imgsz: 640
 
       # STABILITY SETTINGS - Keep these for reliable training
