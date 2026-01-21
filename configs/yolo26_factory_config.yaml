@@ -1,8 +1,8 @@
-# YOLO26-N Factory Environment - Simplified Configuration
+# YOLO26-M Factory Environment - Simplified Configuration
 # Just change data path, epochs, and model size - everything else uses smart defaults
 
 mlflow:
-  experiment_name: "YOLO26-N Factory Training"
+  experiment_name: "YOLO26-M Factory Training"
 
 environment:
   device: "auto"
@@ -39,8 +39,8 @@ data:
 models_to_train:
   - model:
       type: "yolo26"
-      name_tag: "YOLO26N_Factory_Simple"
-      model_size: "yolo26n.pt"
+      name_tag: "YOLO26M_Factory_Simple"
+      model_size: "yolo26m.pt"
 
     training:
       # CORE PARAMETERS - Only change these
@@ -66,4 +66,4 @@ models_to_train:
       exist_ok: true
       single_cls: true
 
-run_name: "YOLO26-N Factory Simple Training"
+run_name: "YOLO26-M Factory Simple Training"

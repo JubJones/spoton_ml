@@ -1,8 +1,8 @@
-# YOLO26-N Campus Environment - Simplified Configuration
+# YOLO26-M Campus Environment - Simplified Configuration
 # Just change data path, epochs, and model size - everything else uses smart defaults
 
 mlflow:
-  experiment_name: "YOLO26-N Campus Training"
+  experiment_name: "YOLO26-M Campus Training"
 
 environment:
   device: "auto"
@@ -37,20 +37,22 @@ data:
 models_to_train:
   - model:
       type: "yolo26"
-      name_tag: "YOLO26N_Campus_Simple"
-      model_size: "yolo26n.pt"
+      name_tag: "YOLO26M_Campus_Simple"
+      model_size: "yolo26m.pt"
+      # To continue training from a crash:
+      # pretrained_weights: "yolo26_training_output/yolo26_campus/weights/last.pt"
 
     training:
       # CORE PARAMETERS - Only change these
       epochs: 50
-      batch_size: 2
+      batch_size: 1
       workers: 0
       imgsz: 640
 
       # STABILITY SETTINGS - Keep these for reliable training
       lr0: 0.0001
       deterministic: false
-      amp: false
+      amp: true
 
       # SIMPLE SETTINGS - Use defaults for everything else
       project: "checkpoints"
@@ -58,4 +60,4 @@ models_to_train:
       exist_ok: true
       single_cls: true
 
-run_name: "YOLO26-N Campus Simple Training"
+run_name: "YOLO26-M Campus Simple Training"
