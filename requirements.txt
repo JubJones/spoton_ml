@@ -36,3 +36,6 @@ pytest
 # Feature extraction
 faiss-cpu
 
+
+# ReID
+git+https://github.com/KaiyangZhou/deep-person-reid.git#egg=torchreid
