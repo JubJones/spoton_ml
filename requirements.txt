@@ -29,6 +29,9 @@ pandas
 pillow
 scipy
 motmetrics
+tensorboard
+future
+cython
 
 # Testing
 pytest
