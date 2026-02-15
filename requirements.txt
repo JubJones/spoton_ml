@@ -44,4 +44,5 @@ faiss-cpu
 gdown
 
 # ReID
-git+https://github.com/KaiyangZhou/deep-person-reid.git#egg=torchreid
+# git+https://github.com/KaiyangZhou/deep-person-reid.git#egg=torchreid
+# NOTE: Run 'python scripts/setup_torchreid.py' to install torchreid without Cython (fixing Windows build errors)
