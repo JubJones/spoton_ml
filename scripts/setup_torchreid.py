@@ -44,9 +44,7 @@ def on_rm_error(func, path, exc_info):
     Error handler for shutil.rmtree.
     If the error is due to an access error (read only file)
     it attempts to add write permission and then retries.
-    If the path is for a file that is open or in use, this will not fix it.
     """
-    # Is the error an access error?
     if not os.access(path, os.W_OK):
         os.chmod(path, stat.S_IWRITE)
         func(path)
@@ -61,13 +59,13 @@ def cleanup_temp():
         except Exception as e:
             logger.warning(f"Cleanup failed (non-critical): {e}")
 
-def install_prerequisites():
-    if not ensure_pip():
-        logger.error("pip is missing and could not be installed. Please install pip manually in your environment.")
-        sys.exit(1)
+def install_package(package_name):
+    logger.info(f"Installing {package_name}...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", package_name])
 
-    logger.info("Installing prerequisites...")
-    subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy", "cython", "opencv-python", "gdown", "tensorboard", "future", "setuptools", "wheel"])
+def install_requirements_from_file(req_path):
+    logger.info(f"Installing requirements from {req_path}...")
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-r", str(req_path)])
 
 def install_torchreid():
     cleanup_temp() # Ensure clean start
@@ -76,9 +74,36 @@ def install_torchreid():
     subprocess.check_call(["git", "clone", REPO_URL, str(TEMP_DIR)])
     
     setup_path = TEMP_DIR / "setup.py"
+    req_path = TEMP_DIR / "requirements.txt"
+    
     if not setup_path.exists():
         logger.error(f"setup.py not found in {TEMP_DIR}")
         return False
+        
+    # ROBUSTNESS FIX: Install all requirements from the repo FIRST
+    # plus explicit trouble-makers like scipy/cython which might be needed during import
+    logger.info("Pre-installing dependencies to avoid import errors during setup...")
+    
+    # 1. Core build deps
+    install_package("numpy") 
+    install_package("cython")
+    install_package("setuptools")
+    install_package("wheel")
+    
+    # 2. Dependencies often missed
+    install_package("scipy")
+    install_package("opencv-python")
+    install_package("gdown")
+    install_package("tensorboard")
+    install_package("future")
+    install_package("imageio")
+    install_package("yacs")
+    install_package("isort")
+    install_package("yapf")
+    
+    # 3. Everything else in requirements.txt
+    if req_path.exists():
+        install_requirements_from_file(req_path)
         
     logger.info("Patching setup.py to disable Cython extensions...")
     with open(setup_path, 'r') as f:
@@ -95,9 +120,6 @@ def install_torchreid():
              new_lines.append(f"# {line}")
         elif 'ext_modules=ext_modules' in line:
              new_lines.append(f"# {line}")
-        # Comment out ext_modules definition list (safeguard)
-        # We can't easily comment out a multi-line list without parsing, 
-        # but commenting out the usage in setup() is sufficient.
         else:
             new_lines.append(line)
             
@@ -116,12 +138,9 @@ def install_torchreid():
 def main():
     if check_installed():
         print("torchreid is already installed.")
-        # If installed, we can exit. 
-        # If the user wants to forcefully reinstall, they should uninstall first.
         return
 
     try:
-        install_prerequisites()
         install_torchreid()
     except Exception as e:
         logger.error(f"Installation failed: {e}")
