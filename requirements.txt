@@ -40,5 +40,8 @@ pytest
 faiss-cpu
 
 
+# Additional dependencies for torchreid
+gdown
+
 # ReID
 git+https://github.com/KaiyangZhou/deep-person-reid.git#egg=torchreid
