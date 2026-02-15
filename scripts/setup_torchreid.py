@@ -23,7 +23,26 @@ def check_installed():
         logger.info("torchreid is not installed.")
         return False
 
+def ensure_pip():
+    """Ensure pip is available in the current environment."""
+    try:
+        subprocess.check_call([sys.executable, "-m", "pip", "--version"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return True
+    except subprocess.CalledProcessError:
+        logger.warning("pip module not found. Attempting to bootstrap with ensurepip...")
+        try:
+            subprocess.check_call([sys.executable, "-m", "ensurepip", "--upgrade", "--default-pip"])
+            logger.info("pip installed successfully.")
+            return True
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to bootstrap pip: {e}")
+            return False
+
 def install_prerequisites():
+    if not ensure_pip():
+        logger.error("pip is missing and could not be installed. Please install pip manually in your environment.")
+        sys.exit(1)
+
     logger.info("Installing prerequisites...")
     subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy", "cython", "opencv-python", "gdown", "tensorboard", "future", "setuptools", "wheel"])
 
@@ -65,7 +84,6 @@ def install_torchreid():
         
     logger.info("Installing torchreid from patched source...")
     # Use --no-build-isolation to ensure it uses the installed numpy/cython from current env
-    # Using 'cwd' to install from the temp directory
     subprocess.check_call([sys.executable, "-m", "pip", "install", ".", "--no-build-isolation"], cwd=str(TEMP_DIR))
     
     logger.info("Cleaning up...")
@@ -78,11 +96,8 @@ def install_torchreid():
 def main():
     if check_installed():
         print("torchreid is already installed.")
-        # We don't exit here because the user might want to re-install if the previous one was broken
-        # But for now, let's assume if it attempts to import successfully, it is fine.
-        # However, the user specifically has an installation that MIGHT be broken or partially installed.
-        # Let's verify if we can actually import it *outside* of this script?
-        # Actually, if check_installed returns True, we probably don't need to do anything.
+        # If installed, we can exit. 
+        # If the user wants to forcefully reinstall, they should uninstall first.
         return
 
     try:
