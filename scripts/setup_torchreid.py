@@ -4,6 +4,7 @@ import sys
 import shutil
 import subprocess
 import logging
+import stat
 from pathlib import Path
 
 # Configure logging
@@ -38,6 +39,28 @@ def ensure_pip():
             logger.error(f"Failed to bootstrap pip: {e}")
             return False
 
+def on_rm_error(func, path, exc_info):
+    """
+    Error handler for shutil.rmtree.
+    If the error is due to an access error (read only file)
+    it attempts to add write permission and then retries.
+    If the path is for a file that is open or in use, this will not fix it.
+    """
+    # Is the error an access error?
+    if not os.access(path, os.W_OK):
+        os.chmod(path, stat.S_IWRITE)
+        func(path)
+    else:
+        logger.warning(f"Could not remove {path}: {exc_info}")
+
+def cleanup_temp():
+    if TEMP_DIR.exists():
+        logger.info(f"Cleaning up {TEMP_DIR}...")
+        try:
+            shutil.rmtree(TEMP_DIR, onerror=on_rm_error)
+        except Exception as e:
+            logger.warning(f"Cleanup failed (non-critical): {e}")
+
 def install_prerequisites():
     if not ensure_pip():
         logger.error("pip is missing and could not be installed. Please install pip manually in your environment.")
@@ -47,8 +70,7 @@ def install_prerequisites():
     subprocess.check_call([sys.executable, "-m", "pip", "install", "numpy", "cython", "opencv-python", "gdown", "tensorboard", "future", "setuptools", "wheel"])
 
 def install_torchreid():
-    if TEMP_DIR.exists():
-        shutil.rmtree(TEMP_DIR)
+    cleanup_temp() # Ensure clean start
     
     logger.info(f"Cloning {REPO_URL} into {TEMP_DIR}...")
     subprocess.check_call(["git", "clone", REPO_URL, str(TEMP_DIR)])
@@ -86,9 +108,7 @@ def install_torchreid():
     # Use --no-build-isolation to ensure it uses the installed numpy/cython from current env
     subprocess.check_call([sys.executable, "-m", "pip", "install", ".", "--no-build-isolation"], cwd=str(TEMP_DIR))
     
-    logger.info("Cleaning up...")
-    if TEMP_DIR.exists():
-        shutil.rmtree(TEMP_DIR)
+    cleanup_temp()
         
     logger.info("Successfully installed torchreid!")
     return True
