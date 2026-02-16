@@ -329,12 +329,7 @@ class MLflowWriter:
         pass
 
 def main():
-    # ... (args parsing, config loading, dataset gen, data manager, model, weights, device, optimizer, scheduler, engine init) ...
-    # This snippet replaces main() lines from 313 to 420.
-    # To keep it simple, I insert the class before main() and only modify the engine setup part inside main loop.
-    pass
-
-# We need to insert the class definition somewhere first. Let's add it before main function.
+    parser = argparse.ArgumentParser(description="ReID Fine-tuning")
     parser.add_argument("--config", default="configs/reid_finetune_config.yaml", help="Path to config file")
     parser.add_argument("--dry-run", action="store_true", help="Run a dry run/test")
     args = parser.parse_args()
