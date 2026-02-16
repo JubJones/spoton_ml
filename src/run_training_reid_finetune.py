@@ -366,11 +366,9 @@ def main():
         width=128,
         batch_size_train=train_config.get("train_batch_size", 32),
         batch_size_test=train_config.get("test_batch_size", 100),
-        transforms=['random_flip', 'random_crop'],
         num_instances=4, 
         # CRITICAL FIX FOR WINDOWS: workers=0 prevents shared memory errors (error 1455)
-        workers=0,
-        pin_memory=False
+        workers=0
     )
     
     # 4. Build Model
