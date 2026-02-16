@@ -33,6 +33,9 @@ try:
     from src.utils.config_loader import load_config
     from src.utils.reproducibility import set_seed
     from src.utils.logging_utils import setup_logging
+    # MLflow and Runner Utilities
+    from src.utils.mlflow_utils import setup_mlflow_experiment, log_artifacts
+    from src.utils.runner import log_params_recursive, log_git_info
     
     # Try importing torchreid
     try:
@@ -314,8 +317,24 @@ class CustomEngine(torchreid.engine.ImageSoftmaxEngine):
         imgs = imgs.to(self.device)
         return imgs, pids, camids
 
+# --- MLflow Writer for Torchreid ---
+class MLflowWriter:
+    def __init__(self, log_dir):
+        pass # No setup needed for MLflow
+        
+    def add_scalar(self, name, value, global_step):
+        mlflow.log_metric(name, value, step=global_step)
+        
+    def close(self):
+        pass
+
 def main():
-    parser = argparse.ArgumentParser(description="ReID Fine-tuning")
+    # ... (args parsing, config loading, dataset gen, data manager, model, weights, device, optimizer, scheduler, engine init) ...
+    # This snippet replaces main() lines from 313 to 420.
+    # To keep it simple, I insert the class before main() and only modify the engine setup part inside main loop.
+    pass
+
+# We need to insert the class definition somewhere first. Let's add it before main function.
     parser.add_argument("--config", default="configs/reid_finetune_config.yaml", help="Path to config file")
     parser.add_argument("--dry-run", action="store_true", help="Run a dry run/test")
     args = parser.parse_args()
@@ -402,36 +421,45 @@ def main():
     )
     
     # 6. Training
-    mlflow.set_experiment("reid_finetune")
-    with mlflow.start_run() as run:
-        mlflow.log_params(train_config)
-        mlflow.log_param("model", model_name)
+    experiment_id = setup_mlflow_experiment(config, "reid_finetune")
+    if not experiment_id:
+        logger.error("Failed to setup MLflow experiment.")
+        return
+
+    with mlflow.start_run(experiment_id=experiment_id) as run:
+        logger.info(f"MLflow Run ID: {run.info.run_id}")
+        
+        # Consistent logging with YOLO runner
+        logger.info("Logging parameters and git info...")
+        log_params_recursive(config)
+        log_git_info()
+        
+        # Additional specific tags
+        mlflow.set_tag("model", model_name)
         if pretrained_weights:
-            mlflow.log_param("pretrained_weights", pretrained_weights)
+            mlflow.set_tag("pretrained_weights", pretrained_weights)
             
         logger.info("Starting Training...")
         max_epoch = 1 if args.dry_run else train_config.get("max_epoch", 60)
-        
-        # engine.run(...)
-        # Manual Training Loop to log to MLflow
-        
-        # 1. Setup
-        save_dir = str(PROJECT_ROOT / "training_output" / "reid_finetune" / run.info.run_id)
-        os.makedirs(save_dir, exist_ok=True)
-        
-        start_epoch = 0 # Can be loaded from resume
-        max_epoch = 1 if args.dry_run else train_config.get("max_epoch", 60)
-        eval_freq = train_config.get("eval_freq", 5)
-        fixbase_epoch = 0 # Disabled for stability
-        open_layers = train_config.get("open_layers", ["classifier"])
-        
-        logger.info(f"Start epoch: {start_epoch}, Max epoch: {max_epoch}")
         
         # Manual setup for engine (normally handled by engine.run)
         engine.max_epoch = max_epoch
         engine.train_loader = datamanager.train_loader
         engine.test_loader = datamanager.test_loader
         engine.pbar = True
+        
+        # 1. Setup Save Dir
+        save_dir = str(PROJECT_ROOT / "training_output" / "reid_finetune" / run.info.run_id)
+        os.makedirs(save_dir, exist_ok=True)
+        
+        engine.writer = MLflowWriter(save_dir) # Inject MLflow writer!
+        
+        start_epoch = 0 # Can be loaded from resume
+        eval_freq = train_config.get("eval_freq", 5)
+        fixbase_epoch = 0 # Disabled for stability
+        open_layers = train_config.get("open_layers", ["classifier"])
+        
+        logger.info(f"Start epoch: {start_epoch}, Max epoch: {max_epoch}")
         
         for epoch in range(start_epoch, max_epoch):
             # --- Training ---
@@ -441,11 +469,6 @@ def main():
                 fixbase_epoch=fixbase_epoch, 
                 open_layers=open_layers
             )
-            
-            # Note: torchreid engine.train doesn't robustly return loss. 
-            # We would need to instrument CustomEngine.train_epoch to get precise values.
-            # But we can assume it prints them. 
-            # For now, we will log *test* metrics which are most important.
             
             # --- Validation ---
             if (epoch + 1) % eval_freq == 0 or (epoch + 1) == max_epoch:
@@ -457,13 +480,16 @@ def main():
                     save_dir=save_dir
                 )
                 
-                # engine.test returns rank1. To get mAP requires hacking engine.test or _evaluate.
-                # However, usually torchreid prints them.
-                # Let's log just Rank-1 for now which is returned.
-                mlflow.log_metric("rank1", rank1, step=epoch+1)
-                
+                # Manual logging removed as engine.test now logs to MLflowWriter
+                # engine._save_checkpoint(epoch, rank1, save_dir) # Engine also logs rank1 in test() but saving is manual in loop if run() not used?
                 # Save checkpoint
-                engine._save_checkpoint(epoch, rank1, save_dir)
+                engine.save_model(epoch, rank1, save_dir)
+                
+                # Log checkpoints to MLflow as artifacts (consistent with YOLO runner)
+                log_artifacts(save_dir, artifact_directory="checkpoints")
+                
+        
+        logger.info("Training Complete.")
                 
         
         logger.info("Training Complete.")
