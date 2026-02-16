@@ -171,6 +171,30 @@ def generate_dataset_from_gt(config: Dict[str, Any], output_root: Path, dry_run:
         _generate_dummy_data(train_dir, query_dir, gallery_dir)
         return
 
+    # --- First Pass: Identify Valid Test PIDs (Must appear in >1 camera) ---
+    logger.info("Scanning GT files to identify multi-camera identities...")
+    pid_cameras: Dict[int, Set[str]] = {}
+    
+    for scene in scenes:
+        scene_id = scene.get("scene_id")
+        camera_ids = scene.get("camera_ids", [])
+        for cam_id in camera_ids:
+            gt_file = base_path / "train" / scene_id / cam_id / "gt" / "gt.txt"
+            if gt_file.exists():
+                with open(gt_file, 'r') as f:
+                    for line in f:
+                        try:
+                            parts = line.strip().split(',')
+                            pid = int(parts[1])
+                            if pid not in pid_cameras: pid_cameras[pid] = set()
+                            pid_cameras[pid].add(cam_id)
+                        except ValueError: continue
+
+    valid_test_pids = {pid for pid, cams in pid_cameras.items() if len(cams) > 1}
+    logger.info(f"Identified {len(valid_test_pids)} multi-camera identities suitable for testing.")
+
+
+    # --- Second Pass: Generate Dataset ---
     for scene in scenes:
         scene_id = scene.get("scene_id")
         camera_ids = scene.get("camera_ids", [])
@@ -179,7 +203,6 @@ def generate_dataset_from_gt(config: Dict[str, Any], output_root: Path, dry_run:
         
         for cam_id in camera_ids:
             # Construct paths
-            # Structure: base_path/train/sXX/cYY/rgb/*.jpg AND .../gt/gt.txt
             scene_dir = base_path / "train" / scene_id
             camera_dir = scene_dir / cam_id
             rgb_dir = camera_dir / "rgb"
@@ -195,72 +218,44 @@ def generate_dataset_from_gt(config: Dict[str, Any], output_root: Path, dry_run:
                 for line in f:
                     try:
                         parts = line.strip().split(',')
-                        # Format: frame, id, x, y, w, h
                         frame_idx = int(parts[0])
                         pid = int(parts[1])
                         x, y, w, h = map(float, parts[2:6])
                         
-                        # Filter small boxes
-                        if w < min_w or h < min_h: 
-                            continue
-                            
-                        if frame_idx not in gt_data:
-                            gt_data[frame_idx] = []
+                        if w < min_w or h < min_h: continue
+                        if frame_idx not in gt_data: gt_data[frame_idx] = []
                         gt_data[frame_idx].append((pid, x, y, w, h))
-                    except ValueError:
-                        continue
+                    except ValueError: continue
             
             # 2. Process Images
             image_files = sorted(list(rgb_dir.glob("*.jpg")))
-            
-            if dry_run:
-                image_files = image_files[:20] # Limit frames for dry run
+            if dry_run: image_files = image_files[:20] 
             
             logger.info(f"  Processing {len(image_files)} frames for {scene_id}/{cam_id}...")
             
             for img_path in tqdm(image_files, desc=f"  {scene_id}/{cam_id}", disable=dry_run):
                 frame_idx = int(img_path.stem)
-                
-                if frame_idx not in gt_data:
-                    continue
+                if frame_idx not in gt_data: continue
                     
                 img = cv2.imread(str(img_path))
-                if img is None:
-                    continue
-                
+                if img is None: continue
                 height, width = img.shape[:2]
                 
                 for (pid, x, y, w, h) in gt_data[frame_idx]:
-                    # Crop
                     x1, y1 = max(0, int(x)), max(0, int(y))
                     x2, y2 = min(width, int(x + w)), min(height, int(y + h))
-                    
-                    if x2 <= x1 or y2 <= y1:
-                        continue
+                    if x2 <= x1 or y2 <= y1: continue
                         
                     crop = img[y1:y2, x1:x2]
-                    
-                    # Save
                     cid_int = int(cam_id.replace('c', ''))
                     filename = f"{pid:04d}_c{cid_int:02d}_{frame_idx:06d}.jpg"
                     
-                    # Split logic: simplified. 
-                    # If PID % 10 == 0 -> Test (Query/Gallery). Else -> Train.
-                    # This ensures disjoint identities between train and test.
-                    if pid % 10 == 0:
-                        # For test set, ensure at least one in query and one in gallery per PID
-                        # Strategy: 1st image -> Gallery (Safe baseline)
-                        #           2nd image -> Query (Now we have a pair)
-                        #           3rd+ image -> Gallery (Increase gallery size)
+                    # Split Logic: Only put in Test Set if multi-cam AND pid%10==0
+                    if (pid in valid_test_pids) and (pid % 10 == 0):
                         count = pid_image_counts.get(pid, 0)
-                        
-                        if count == 0:
-                            target = gallery_dir # First one to Gallery
-                        elif count == 1:
-                            target = query_dir # Second one to Query (valid pair created)
-                        else:
-                            target = gallery_dir # Rest to Gallery
-                            
+                        if count == 0: target = gallery_dir # Ensure at least 1 in Gallery
+                        elif count == 1: target = query_dir # Ensure at least 1 in Query (Valid Pair)
+                        else: target = gallery_dir # Rest to Gallery
                         pid_image_counts[pid] = count + 1
                     else:
                         target = train_dir
@@ -270,7 +265,6 @@ def generate_dataset_from_gt(config: Dict[str, Any], output_root: Path, dry_run:
                     pids_collected.add(pid)
 
     logger.info(f"Dataset Generation Complete. Total Crops: {total_crops}. Total Identities: {len(pids_collected)}")
-    
     if total_crops == 0 and dry_run:
         logger.warning("No crops generated in dry run. Generating dummy data.")
         _generate_dummy_data(train_dir, query_dir, gallery_dir)
@@ -487,12 +481,19 @@ def main():
             # --- Validation ---
             if (epoch + 1) % eval_freq == 0 or (epoch + 1) == max_epoch:
                 logger.info(f"Evaluating at epoch {epoch + 1}")
-                rank1 = engine.test(
-                    dist_metric='euclidean',
-                    normalize_feature=False,
-                    visrank=False,
-                    save_dir=save_dir
-                )
+                try:
+                    rank1 = engine.test(
+                        dist_metric='euclidean',
+                        normalize_feature=False,
+                        visrank=False,
+                        save_dir=save_dir
+                    )
+                except AssertionError as e:
+                    logger.warning(f"Validation failed: {e}. Likely due to insufficient cross-camera samples. Setting Rank1=0.")
+                    rank1 = 0.0
+                except Exception as e:
+                    logger.error(f"Validation crashed: {e}")
+                    rank1 = 0.0
                 
                 # Check for best model
                 is_best = rank1 > best_rank1
