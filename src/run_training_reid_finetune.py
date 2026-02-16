@@ -424,10 +424,9 @@ def main():
         
         for epoch in range(start_epoch, max_epoch):
             # --- Training ---
+            engine.epoch = epoch # Manually set epoch for engine
             engine.train(
-                epoch, 
-                max_epoch, 
-                datamanager.train_loader, 
+                print_freq=train_config.get("print_freq", 10),
                 fixbase_epoch=fixbase_epoch, 
                 open_layers=open_layers
             )
@@ -441,8 +440,6 @@ def main():
             if (epoch + 1) % eval_freq == 0:
                 logger.info(f"Evaluating at epoch {epoch + 1}")
                 rank1 = engine.test(
-                    epoch, 
-                    datamanager.test_loader,
                     dist_metric='euclidean',
                     normalize_feature=False,
                     visrank=False,
