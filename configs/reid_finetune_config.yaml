@@ -1,0 +1,36 @@
+# ReID Fine-tuning Configuration
+
+environment:
+  type: "factory"  # or "campus"
+
+data:
+  base_path: "D:/MTMMC"  # Base path where videos/gt are located (User's specific path)
+  output_dir: "data/reid_finetune"  # Where to save the generated ReID dataset
+  scenes_to_include:
+    - scene_id: "s10"
+      camera_ids: ["c09", "c10", "c11", "c12", "c13", "c14", "c15", "c16"]
+    # Add other scenes if needed
+  min_height: 128  # Minimum height of person crop to include
+  min_width: 64    # Minimum width of person crop to include
+  min_visability: 0.3 # Minimum visibility from GT (if available)
+
+model:
+  name: "osnet_ain_x1_0"
+  pretrained_weights: "weights/reid/osnet_ain_ms_d_c.pth.tar" 
+  loss: "softmax"  # 'softmax', 'triplet', or 'softmax_triplet'
+
+training:
+  name: "osnet_ain_factory_finetune"
+  max_epoch: 60
+  start_epoch: 0
+  train_batch_size: 64
+  test_batch_size: 100
+  learning_rate: 0.0003
+  step_size: 20
+  gamma: 0.1
+  weight_decay: 5e-4
+  fixbase_epoch: 5  # Epochs to fix base layers and only train classifier
+  open_layers: ["classifier"]  # Layers to train during fixbase
+  eval_freq: 5
+  seed: 42
+  print_freq: 10

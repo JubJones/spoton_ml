@@ -200,3 +200,11 @@ Thumbs.db
 *.log
 *.tmp
 *.swp
+
+
+data/
+gt_reid
+output_sub_videos/
+
+training_output/
+weights/
