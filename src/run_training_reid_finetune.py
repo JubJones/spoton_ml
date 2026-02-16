@@ -368,7 +368,9 @@ def main():
         batch_size_test=train_config.get("test_batch_size", 100),
         transforms=['random_flip', 'random_crop'],
         num_instances=4, 
-        workers=0 if args.dry_run else 4 
+        # CRITICAL FIX FOR WINDOWS: workers=0 prevents shared memory errors (error 1455)
+        workers=0,
+        pin_memory=False
     )
     
     # 4. Build Model
