@@ -163,6 +163,7 @@ def generate_dataset_from_gt(config: Dict[str, Any], output_root: Path, dry_run:
     
     total_crops = 0
     pids_collected: Set[int] = set()
+    pid_image_counts: Dict[int, int] = {}
     
     # Handle Dry Run with dummy data if actual data is missing
     if dry_run and not base_path.exists():
@@ -247,13 +248,20 @@ def generate_dataset_from_gt(config: Dict[str, Any], output_root: Path, dry_run:
                     # If PID % 10 == 0 -> Test (Query/Gallery). Else -> Train.
                     # This ensures disjoint identities between train and test.
                     if pid % 10 == 0:
-                        # For test set, we need query and gallery.
-                        # Simple split: even frames gallery, odd frames query? 
-                        # Or random? Let's do hash based.
-                        if hash(filename) % 2 == 0:
-                            target = gallery_dir
+                        # For test set, ensure at least one in query and one in gallery per PID
+                        # Strategy: 1st image -> Gallery (Safe baseline)
+                        #           2nd image -> Query (Now we have a pair)
+                        #           3rd+ image -> Gallery (Increase gallery size)
+                        count = pid_image_counts.get(pid, 0)
+                        
+                        if count == 0:
+                            target = gallery_dir # First one to Gallery
+                        elif count == 1:
+                            target = query_dir # Second one to Query (valid pair created)
                         else:
-                            target = query_dir
+                            target = gallery_dir # Rest to Gallery
+                            
+                        pid_image_counts[pid] = count + 1
                     else:
                         target = train_dir
                     
@@ -423,7 +431,10 @@ def main():
     )
     
     # 6. Training
-    experiment_id = setup_mlflow_experiment(config, "reid_finetune")
+    mlflow_config = config.get("mlflow", {})
+    experiment_name = mlflow_config.get("experiment_name", "reid_finetune")
+    
+    experiment_id = setup_mlflow_experiment(config, experiment_name)
     if not experiment_id:
         logger.error("Failed to setup MLflow experiment.")
         return

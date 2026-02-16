@@ -1,6 +1,9 @@
 # ReID Fine-tuning Configuration - Factory
 # Based on YOLO26 Factory Scene Selection
 
+mlflow:
+  experiment_name: "OSNet ReID Factory Fine-tuning"
+
 environment:
   type: "factory"
 

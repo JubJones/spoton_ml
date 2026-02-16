@@ -1,6 +1,9 @@
 # ReID Fine-tuning Configuration - Campus
 # Based on YOLO26 Campus Scene Selection
 
+mlflow:
+  experiment_name: "OSNet ReID Campus Fine-tuning"
+
 environment:
   type: "campus"
 
