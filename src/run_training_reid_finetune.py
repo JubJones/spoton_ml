@@ -448,7 +448,7 @@ def main():
             # For now, we will log *test* metrics which are most important.
             
             # --- Validation ---
-            if (epoch + 1) % eval_freq == 0:
+            if (epoch + 1) % eval_freq == 0 or (epoch + 1) == max_epoch:
                 logger.info(f"Evaluating at epoch {epoch + 1}")
                 rank1 = engine.test(
                     dist_metric='euclidean',
