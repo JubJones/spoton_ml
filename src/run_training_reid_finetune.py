@@ -416,11 +416,18 @@ def main():
         os.makedirs(save_dir, exist_ok=True)
         
         start_epoch = 0 # Can be loaded from resume
+        max_epoch = 1 if args.dry_run else train_config.get("max_epoch", 60)
         eval_freq = train_config.get("eval_freq", 5)
         fixbase_epoch = 0 # Disabled for stability
         open_layers = train_config.get("open_layers", ["classifier"])
         
         logger.info(f"Start epoch: {start_epoch}, Max epoch: {max_epoch}")
+        
+        # Manual setup for engine (normally handled by engine.run)
+        engine.max_epoch = max_epoch
+        engine.train_loader = datamanager.train_loader
+        engine.test_loader = datamanager.test_loader
+        engine.pbar = True
         
         for epoch in range(start_epoch, max_epoch):
             # --- Training ---
