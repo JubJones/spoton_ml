@@ -461,6 +461,7 @@ def main():
         fixbase_epoch = 0 # Disabled for stability
         open_layers = train_config.get("open_layers", ["classifier"])
         
+        best_rank1 = 0.0
         logger.info(f"Start epoch: {start_epoch}, Max epoch: {max_epoch}")
         
         for epoch in range(start_epoch, max_epoch):
@@ -482,10 +483,14 @@ def main():
                     save_dir=save_dir
                 )
                 
-                # Manual logging removed as engine.test now logs to MLflowWriter
-                # engine._save_checkpoint(epoch, rank1, save_dir) # Engine also logs rank1 in test() but saving is manual in loop if run() not used?
+                # Check for best model
+                is_best = rank1 > best_rank1
+                if is_best:
+                    best_rank1 = rank1
+                    logger.info(f"New best model! Rank-1: {rank1:.1%}")
+                
                 # Save checkpoint
-                engine.save_model(epoch, rank1, save_dir)
+                engine.save_model(epoch, rank1, save_dir, is_best=is_best)
                 
                 # Log checkpoints to MLflow as artifacts (consistent with YOLO runner)
                 log_artifacts(save_dir, artifact_directory="checkpoints")
