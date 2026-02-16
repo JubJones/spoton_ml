@@ -1,0 +1,43 @@
+# ReID Fine-tuning Configuration - Campus
+# Based on YOLO26 Campus Scene Selection
+
+environment:
+  type: "campus"
+
+data:
+  base_path: "D:/MTMMC"
+  output_dir: "data/reid_campus"
+  
+  # Scenes mirrored from configs/yolo26_campus_config.yaml
+  scenes_to_include:
+    - scene_id: "s47"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+    - scene_id: "s42"
+      camera_ids: ["c01", "c02", "c03", "c05"]
+      
+    # Add other scenes if needed (s35, s36, s38, s39 per YOLO config)
+
+  min_height: 128
+  min_width: 64
+  min_visability: 0.3
+
+model:
+  name: "osnet_ain_x1_0"
+  pretrained_weights: "weights/reid/osnet_ain_ms_d_c.pth.tar" 
+  loss: "softmax"
+
+training:
+  name: "osnet_ain_campus_finetune"
+  max_epoch: 60
+  start_epoch: 0
+  train_batch_size: 64
+  test_batch_size: 100
+  learning_rate: 0.0003
+  step_size: 20
+  gamma: 0.1
+  weight_decay: 5e-4
+  fixbase_epoch: 5
+  open_layers: ["classifier"]
+  eval_freq: 5
+  seed: 42
+  print_freq: 10

@@ -1,0 +1,47 @@
+# ReID Fine-tuning Configuration - Factory
+# Based on YOLO26 Factory Scene Selection
+
+environment:
+  type: "factory"
+
+data:
+  base_path: "D:/MTMMC"
+  output_dir: "data/reid_factory"
+  
+  # Scenes mirrored from configs/yolo26_factory_config.yaml
+  scenes_to_include:
+    - scene_id: "s01"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s10"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s11"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+    - scene_id: "s13"
+      camera_ids: ["c09", "c12", "c13", "c16"]
+
+    # Add other scenes if needed (s16, s18, s20 per YOLO config)
+
+  min_height: 128
+  min_width: 64
+  min_visability: 0.3
+
+model:
+  name: "osnet_ain_x1_0"
+  pretrained_weights: "weights/reid/osnet_ain_ms_d_c.pth.tar" 
+  loss: "softmax"
+
+training:
+  name: "osnet_ain_factory_finetune"
+  max_epoch: 60
+  start_epoch: 0
+  train_batch_size: 64
+  test_batch_size: 100
+  learning_rate: 0.0003
+  step_size: 20
+  gamma: 0.1
+  weight_decay: 5e-4
+  fixbase_epoch: 5
+  open_layers: ["classifier"]
+  eval_freq: 5
+  seed: 42
+  print_freq: 10
