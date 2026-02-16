@@ -284,6 +284,10 @@ class CustomEngine(torchreid.engine.ImageSoftmaxEngine):
     def __init__(self, datamanager, model, optimizer=None, scheduler=None, use_gpu=False, label_smooth=True, device='cpu'):
         super(CustomEngine, self).__init__(datamanager, model, optimizer, scheduler, use_gpu, label_smooth)
         self.device = device
+        self.max_epoch = 0 # Default to 0, will be updated or used for manual loop
+        self.epoch = 0
+        self.train_loader = self.datamanager.train_loader
+        self.test_loader = self.datamanager.test_loader
 
     def parse_data_for_train(self, data):
         if isinstance(data, dict):
