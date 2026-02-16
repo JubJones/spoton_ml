@@ -408,16 +408,55 @@ def main():
         logger.info("Starting Training...")
         max_epoch = 1 if args.dry_run else train_config.get("max_epoch", 60)
         
-        engine.run(
-            save_dir=str(PROJECT_ROOT / "training_output" / "reid_finetune" / run.info.run_id),
-            max_epoch=max_epoch,
-            eval_freq=train_config.get("eval_freq", 5),
-            print_freq=train_config.get("print_freq", 10),
-            test_only=False,
-            # fixbase_epoch=train_config.get("fixbase_epoch", 5), # Disable fixbase for stability in dry-run/finetune
-            fixbase_epoch=0,
-            open_layers=train_config.get("open_layers", ["classifier"])
-        )
+        # engine.run(...)
+        # Manual Training Loop to log to MLflow
+        
+        # 1. Setup
+        save_dir = str(PROJECT_ROOT / "training_output" / "reid_finetune" / run.info.run_id)
+        os.makedirs(save_dir, exist_ok=True)
+        
+        start_epoch = 0 # Can be loaded from resume
+        eval_freq = train_config.get("eval_freq", 5)
+        fixbase_epoch = 0 # Disabled for stability
+        open_layers = train_config.get("open_layers", ["classifier"])
+        
+        logger.info(f"Start epoch: {start_epoch}, Max epoch: {max_epoch}")
+        
+        for epoch in range(start_epoch, max_epoch):
+            # --- Training ---
+            engine.train(
+                epoch, 
+                max_epoch, 
+                datamanager.train_loader, 
+                fixbase_epoch=fixbase_epoch, 
+                open_layers=open_layers
+            )
+            
+            # Note: torchreid engine.train doesn't robustly return loss. 
+            # We would need to instrument CustomEngine.train_epoch to get precise values.
+            # But we can assume it prints them. 
+            # For now, we will log *test* metrics which are most important.
+            
+            # --- Validation ---
+            if (epoch + 1) % eval_freq == 0:
+                logger.info(f"Evaluating at epoch {epoch + 1}")
+                rank1 = engine.test(
+                    epoch, 
+                    datamanager.test_loader,
+                    dist_metric='euclidean',
+                    normalize_feature=False,
+                    visrank=False,
+                    save_dir=save_dir
+                )
+                
+                # engine.test returns rank1. To get mAP requires hacking engine.test or _evaluate.
+                # However, usually torchreid prints them.
+                # Let's log just Rank-1 for now which is returned.
+                mlflow.log_metric("rank1", rank1, step=epoch+1)
+                
+                # Save checkpoint
+                engine._save_checkpoint(epoch, rank1, save_dir)
+                
         
         logger.info("Training Complete.")
 
