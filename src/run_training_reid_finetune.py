@@ -343,6 +343,13 @@ def main():
     
     # 2. Generate Dataset
     output_dir = Path(config["data"]["output_dir"])
+    if args.dry_run:
+        output_dir = output_dir.with_name(output_dir.name + "_dryrun")
+        logger.info(f"Dry run: Using separate output directory {output_dir}")
+        if output_dir.exists():
+            shutil.rmtree(output_dir) # Clean start for dry run
+    
+    generate_dataset_from_gt(config, output_dir, dry_run=args.dry_run)
     generate_dataset_from_gt(config, output_dir, dry_run=args.dry_run)
     
     # 3. Initialize Data Manager
