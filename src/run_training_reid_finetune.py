@@ -286,16 +286,27 @@ class CustomEngine(torchreid.engine.ImageSoftmaxEngine):
         self.device = device
 
     def parse_data_for_train(self, data):
-        imgs = data[0] # (batch, 3, h, w)
-        pids = data[1] # (batch,)
+        if isinstance(data, dict):
+            imgs = data['img']
+            pids = data['pid']
+        else:
+            imgs = data[0]
+            pids = data[1]
+        
         imgs = imgs.to(self.device)
         pids = pids.to(self.device)
         return imgs, pids
 
     def parse_data_for_test(self, data):
-        imgs = data[0]
-        pids = data[1]
-        camids = data[2]
+        if isinstance(data, dict):
+            imgs = data['img']
+            pids = data['pid']
+            camids = data['camid']
+        else:
+            imgs = data[0]
+            pids = data[1]
+            camids = data[2]
+        
         imgs = imgs.to(self.device)
         return imgs, pids, camids
 
