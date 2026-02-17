@@ -294,6 +294,61 @@ class CustomEngine(torchreid.engine.ImageSoftmaxEngine):
         self.train_loader = self.datamanager.train_loader
         self.test_loader = self.datamanager.test_loader
 
+        self.scaler = torch.cuda.amp.GradScaler() if use_gpu else None
+
+    def train(self, print_freq=10, fixbase_epoch=0, open_layers=None):
+        losses = torchreid.utils.AverageMeter()
+        batch_time = torchreid.utils.AverageMeter()
+        data_time = torchreid.utils.AverageMeter()
+
+        self.model.train()
+        if (self.epoch + 1) <= fixbase_epoch and open_layers is not None:
+            print('* Only train {} (epoch: {}/{})'.format(open_layers, self.epoch + 1, fixbase_epoch))
+            torchreid.utils.open_specified_layers(self.model, open_layers)
+        else:
+            torchreid.utils.open_all_layers(self.model)
+
+        end = time.time()
+        for batch_idx, data in enumerate(self.train_loader):
+            data_time.update(time.time() - end)
+
+            imgs, pids = self.parse_data_for_train(data)
+
+            self.optimizer.zero_grad()
+            
+            if self.scaler:
+                with torch.cuda.amp.autocast():
+                    outputs = self.model(imgs)
+                    loss = self.compute_loss(self.criterion, outputs, pids)
+                
+                self.scaler.scale(loss).backward()
+                self.scaler.step(self.optimizer)
+                self.scaler.update()
+            else:
+                outputs = self.model(imgs)
+                loss = self.compute_loss(self.criterion, outputs, pids)
+                loss.backward()
+                self.optimizer.step()
+
+            batch_time.update(time.time() - end)
+            losses.update(loss.item(), pids.size(0))
+
+            if (batch_idx + 1) % print_freq == 0:
+                print('Epoch: [{0}][{1}/{2}]\t'
+                      'Time {batch_time.val:.3f} ({batch_time.avg:.3f})\t'
+                      'Data {data_time.val:.3f} ({data_time.avg:.3f})\t'
+                      'Loss {loss.val:.4f} ({loss.avg:.4f})\t'.format(
+                       self.epoch + 1, batch_idx + 1, len(self.train_loader),
+                       batch_time=batch_time,
+                       data_time=data_time,
+                       loss=losses))
+            
+            end = time.time()
+
+        if self.writer is not None:
+            self.writer.add_scalar('train/loss', losses.avg, self.epoch)
+            self.writer.add_scalar('train/lr', self.optimizer.param_groups[0]['lr'], self.epoch)
+
     def parse_data_for_train(self, data):
         if isinstance(data, dict):
             imgs = data['img']

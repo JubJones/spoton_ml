@@ -37,8 +37,8 @@ training:
   name: "osnet_ain_factory_finetune"
   max_epoch: 60
   start_epoch: 0
-  train_batch_size: 64
-  test_batch_size: 100
+  train_batch_size: 32
+  test_batch_size: 32
   learning_rate: 0.0003
   step_size: 20
   gamma: 0.1
