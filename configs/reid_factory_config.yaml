@@ -24,14 +24,14 @@ data:
 
     # Add other scenes if needed (s16, s18, s20 per YOLO config)
 
-  min_height: 128
-  min_width: 64
+  min_height: 64
+  min_width: 32
   min_visability: 0.3
 
 model:
   name: "osnet_ain_x1_0"
   pretrained_weights: "weights/reid/osnet_ain_ms_d_c.pth.tar" 
-  loss: "softmax"
+  loss: "triplet"
 
 training:
   name: "osnet_ain_factory_finetune"

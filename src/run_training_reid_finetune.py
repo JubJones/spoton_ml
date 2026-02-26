@@ -186,6 +186,9 @@ def generate_dataset_from_gt(config: Dict[str, Any], output_root: Path, dry_run:
                         try:
                             parts = line.strip().split(',')
                             pid = int(parts[1])
+                            w = float(parts[4])
+                            h = float(parts[5])
+                            if w < min_w or h < min_h: continue
                             if pid not in pid_cameras: pid_cameras[pid] = set()
                             pid_cameras[pid].add(cam_id)
                         except ValueError: continue
@@ -250,13 +253,16 @@ def generate_dataset_from_gt(config: Dict[str, Any], output_root: Path, dry_run:
                     cid_int = int(cam_id.replace('c', ''))
                     filename = f"{pid:04d}_c{cid_int:02d}_{frame_idx:06d}.jpg"
                     
-                    # Split Logic: Only put in Test Set if multi-cam AND pid%10==0
-                    if (pid in valid_test_pids) and (pid % 10 == 0):
-                        count = pid_image_counts.get(pid, 0)
-                        if count == 0: target = gallery_dir # Ensure at least 1 in Gallery
-                        elif count == 1: target = query_dir # Ensure at least 1 in Query (Valid Pair)
+                    # Split Logic: Only put in Test Set if multi-cam AND pid%5==0 (20% of identities)
+                    if (pid in valid_test_pids) and (pid % 5 == 0):
+                        pid_cam_key = (pid, cid_int)
+                        count = pid_image_counts.get(pid_cam_key, 0)
+                        
+                        # For each camera a person appears in, put the first crop in Query, rest in Gallery.
+                        if count == 0: target = query_dir
                         else: target = gallery_dir # Rest to Gallery
-                        pid_image_counts[pid] = count + 1
+                        
+                        pid_image_counts[pid_cam_key] = count + 1
                     else:
                         target = train_dir
                     
@@ -285,9 +291,9 @@ def _generate_dummy_data(train_dir, query_dir, gallery_dir):
                     cv2.imwrite(str(gallery_dir / fname_q), img)
 
 # --- Custom Engine for MPS Support (Optional) ---
-class CustomEngine(torchreid.engine.ImageSoftmaxEngine):
-    def __init__(self, datamanager, model, optimizer=None, scheduler=None, use_gpu=False, label_smooth=True, device='cpu'):
-        super(CustomEngine, self).__init__(datamanager, model, optimizer, scheduler, use_gpu, label_smooth)
+class CustomEngine(torchreid.engine.ImageTripletEngine):
+    def __init__(self, datamanager, model, optimizer=None, margin=0.3, weight_t=1.0, weight_x=1.0, scheduler=None, use_gpu=False, label_smooth=True, device='cpu'):
+        super(CustomEngine, self).__init__(datamanager, model, optimizer, margin, weight_t, weight_x, scheduler, use_gpu, label_smooth)
         self.device = device
         self.max_epoch = 0 # Default to 0, will be updated or used for manual loop
         self.epoch = 0
@@ -319,14 +325,14 @@ class CustomEngine(torchreid.engine.ImageSoftmaxEngine):
             if self.scaler:
                 with torch.cuda.amp.autocast():
                     outputs = self.model(imgs)
-                    loss = self.compute_loss(self.criterion, outputs, pids)
+                    loss = self.compute_loss(self.criterion_t, self.criterion_x, outputs, pids)
                 
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
                 outputs = self.model(imgs)
-                loss = self.compute_loss(self.criterion, outputs, pids)
+                loss = self.compute_loss(self.criterion_t, self.criterion_x, outputs, pids)
                 loss.backward()
                 self.optimizer.step()
 
@@ -473,6 +479,9 @@ def main():
         datamanager,
         model,
         optimizer=optimizer,
+        margin=0.3,
+        weight_t=1.0,
+        weight_x=1.0,
         scheduler=scheduler,
         label_smooth=True,
         use_gpu=(device == 'cuda'), # Only use torchreid's internal gpu handling for CUDA
@@ -518,7 +527,7 @@ def main():
         
         start_epoch = 0 # Can be loaded from resume
         eval_freq = train_config.get("eval_freq", 5)
-        fixbase_epoch = 0 # Disabled for stability
+        fixbase_epoch = train_config.get("fixbase_epoch", 5) # Respect config for fixing base layers
         open_layers = train_config.get("open_layers", ["classifier"])
         
         best_rank1 = 0.0
