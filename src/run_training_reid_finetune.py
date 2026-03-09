@@ -324,15 +324,19 @@ class CustomEngine(torchreid.engine.ImageTripletEngine):
             
             if self.scaler:
                 with torch.cuda.amp.autocast():
-                    outputs = self.model(imgs)
-                    loss = self.compute_loss(self.criterion_t, self.criterion_x, outputs, pids)
+                    outputs, features = self.model(imgs)
+                    loss_t = self.compute_loss(self.criterion_t, features, pids)
+                    loss_x = self.compute_loss(self.criterion_x, outputs, pids)
+                    loss = self.weight_t * loss_t + self.weight_x * loss_x
                 
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs = self.model(imgs)
-                loss = self.compute_loss(self.criterion_t, self.criterion_x, outputs, pids)
+                outputs, features = self.model(imgs)
+                loss_t = self.compute_loss(self.criterion_t, features, pids)
+                loss_x = self.compute_loss(self.criterion_x, outputs, pids)
+                loss = self.weight_t * loss_t + self.weight_x * loss_x
                 loss.backward()
                 self.optimizer.step()
 
@@ -460,11 +464,15 @@ def main():
     model = model.to(device)
 
     # 5. Optimizer & Engine
+    # Add staged learning rate so base pre-trained layers get a smaller LR than the random classifier
     optimizer = torchreid.optim.build_optimizer(
         model,
         optim="adam",
         lr=float(train_config.get("learning_rate", 0.0003)),
-        weight_decay=float(train_config.get("weight_decay", 5e-4))
+        weight_decay=float(train_config.get("weight_decay", 5e-4)),
+        staged_lr=True,
+        new_layers=train_config.get("open_layers", ["classifier"]),
+        base_lr_mult=0.1
     )
     
     scheduler = torchreid.optim.build_lr_scheduler(
@@ -541,6 +549,10 @@ def main():
                 fixbase_epoch=fixbase_epoch, 
                 open_layers=open_layers
             )
+            
+            # Step the scheduler at the end of every training epoch
+            if engine.scheduler is not None:
+                engine.scheduler.step()
             
             # --- Validation ---
             if (epoch + 1) % eval_freq == 0 or (epoch + 1) == max_epoch:
