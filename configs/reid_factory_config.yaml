@@ -35,16 +35,16 @@ model:
 
 training:
   name: "osnet_ain_factory_finetune"
-  max_epoch: 60
+  max_epoch: 10
   start_epoch: 0
   train_batch_size: 32
   test_batch_size: 32
   learning_rate: 0.0003
-  step_size: 20
+  step_size: 5
   gamma: 0.1
   weight_decay: 5e-4
-  fixbase_epoch: 5
+  fixbase_epoch: 2
   open_layers: ["classifier"]
-  eval_freq: 5
+  eval_freq: 2
   seed: 42
   print_freq: 10
