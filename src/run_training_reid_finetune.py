@@ -325,9 +325,21 @@ class CustomEngine(torchreid.engine.ImageTripletEngine):
             if self.scaler:
                 with torch.cuda.amp.autocast():
                     outputs, features = self.model(imgs)
-                    loss_t = self.compute_loss(self.criterion_t, features, pids)
-                    loss_x = self.compute_loss(self.criterion_x, outputs, pids)
-                    loss = self.weight_t * loss_t + self.weight_x * loss_x
+                
+                # Cast to float32 outside autocast to prevent Half precision errors in Triplet Loss
+                if isinstance(features, (list, tuple)):
+                    features = [f.float() for f in features]
+                else:
+                    features = features.float()
+                    
+                if isinstance(outputs, (list, tuple)):
+                    outputs = [o.float() for o in outputs]
+                else:
+                    outputs = outputs.float()
+
+                loss_t = self.compute_loss(self.criterion_t, features, pids)
+                loss_x = self.compute_loss(self.criterion_x, outputs, pids)
+                loss = self.weight_t * loss_t + self.weight_x * loss_x
                 
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
