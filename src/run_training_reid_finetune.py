@@ -324,31 +324,52 @@ class CustomEngine(torchreid.engine.ImageTripletEngine):
             
             if self.scaler:
                 with torch.cuda.amp.autocast():
-                    outputs, features = self.model(imgs)
+                    model_out = self.model(imgs)
                 
-                # Cast to float32 outside autocast to prevent Half precision errors in Triplet Loss
-                if isinstance(features, (list, tuple)):
-                    features = [f.float() for f in features]
+                # Handle single or multiple outputs based on loss type
+                if isinstance(model_out, (tuple, list)):
+                    outputs, features = model_out[0], model_out[1]
                 else:
-                    features = features.float()
+                    outputs = model_out
+                    features = None
+                
+                # Cast to float32 outside autocast to prevent Half precision errors in Loss
+                if features is not None:
+                    if isinstance(features, (list, tuple)):
+                        features = [f.float() for f in features]
+                    else:
+                        features = features.float()
                     
                 if isinstance(outputs, (list, tuple)):
                     outputs = [o.float() for o in outputs]
                 else:
                     outputs = outputs.float()
 
-                loss_t = self.compute_loss(self.criterion_t, features, pids)
-                loss_x = self.compute_loss(self.criterion_x, outputs, pids)
-                loss = self.weight_t * loss_t + self.weight_x * loss_x
+                if features is not None:
+                    loss_t = self.compute_loss(self.criterion_t, features, pids)
+                    loss_x = self.compute_loss(self.criterion_x, outputs, pids)
+                    loss = self.weight_t * loss_t + self.weight_x * loss_x
+                else:
+                    loss = self.compute_loss(self.criterion_x, outputs, pids)
                 
                 self.scaler.scale(loss).backward()
                 self.scaler.step(self.optimizer)
                 self.scaler.update()
             else:
-                outputs, features = self.model(imgs)
-                loss_t = self.compute_loss(self.criterion_t, features, pids)
-                loss_x = self.compute_loss(self.criterion_x, outputs, pids)
-                loss = self.weight_t * loss_t + self.weight_x * loss_x
+                model_out = self.model(imgs)
+                if isinstance(model_out, (tuple, list)):
+                    outputs, features = model_out[0], model_out[1]
+                else:
+                    outputs = model_out
+                    features = None
+
+                if features is not None:
+                    loss_t = self.compute_loss(self.criterion_t, features, pids)
+                    loss_x = self.compute_loss(self.criterion_x, outputs, pids)
+                    loss = self.weight_t * loss_t + self.weight_x * loss_x
+                else:
+                    loss = self.compute_loss(self.criterion_x, outputs, pids)
+                    
                 loss.backward()
                 self.optimizer.step()
 
